@@ -1,0 +1,20 @@
+# 构建生成的二进制与中间产物
+bin/
+build/
+*.o
+*.obj
+*.moc
+*.rcc
+ui_*.h
+moc_*.cpp
+qrc_*.cpp
+
+# Qt Creator 个人本地环境配置
+*.pro.user*
+*.stash
+Makefile*
+.qmake.stash
+
+# 系统临时文件
+.DS_Store
+Thumbs.db
