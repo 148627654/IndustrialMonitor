@@ -1,5 +1,8 @@
 <RCC>
     <qresource prefix="/">
         <file>qss/dark_style.qss</file>
+        <file>icons/logo.jpg</file>
+        <file>icons/eye.png</file>
+        <file>icons/eye_close.png</file>
     </qresource>
 </RCC>

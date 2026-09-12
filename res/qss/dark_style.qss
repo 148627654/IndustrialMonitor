@@ -44,3 +44,37 @@ QPushButton:disabled {
     background-color: #3E3E42;
     color: #858585;
 }
+
+QDialog {
+    background-color: #252526;
+}
+
+QCheckBox {
+    color: #CCCCCC;
+    spacing: 6px;
+}
+
+QCheckBox::indicator {
+    width: 16px;
+    height: 16px;
+    border: 1px solid #3F3F46;
+    border-radius: 3px;
+    background-color: #2D2D2D;
+}
+
+QCheckBox::indicator:checked {
+    background-color: #0E639C;
+    border-color: #007ACC;
+}
+
+/* 统一输入框在 Dialog 下的视觉 */
+QDialog QLineEdit {
+    font-size: 13px;
+    height: 24px;
+}
+
+/* 强调型大按钮 */
+QPushButton#btnLogin {
+    font-size: 14px;
+    height: 28px;
+}

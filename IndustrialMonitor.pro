@@ -28,13 +28,16 @@ INCLUDEPATH += \
 SOURCES += \
     src/main.cpp \
     src/common/ThemeManager.cpp \
+    src/views/logindialog.cpp \
     src/views/mainwindow.cpp
 
 HEADERS += \
     src/common/ThemeManager.h \
+    src/views/logindialog.h \
     src/views/mainwindow.h
 
 FORMS += \
+    src/views/logindialog.ui \
     src/views/mainwindow.ui
 
 # -------------------------------------------------------------
