@@ -78,3 +78,32 @@ QPushButton#btnLogin {
     font-size: 14px;
     height: 28px;
 }
+
+/* 主工作区背景色 */
+QMainWindow {
+    background-color: #1E1E1E;
+}
+
+/* 左侧导航栏容器 */
+QWidget#sidebarWidget {
+    background-color: #252526;
+    border-right: 1px solid #333333;
+}
+
+/* 右侧内容容器 */
+QWidget#contentWidget {
+    background-color: #1E1E1E;
+}
+
+/* 底部状态栏 */
+QStatusBar {
+    background-color: #007ACC; /* 经典工业工控蓝底 */
+    color: #FFFFFF;
+    font-size: 12px;
+    min-height: 28px;
+    max-height: 28px;
+}
+
+QStatusBar::item {
+    border: none;
+}

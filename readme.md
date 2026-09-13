@@ -1,3 +1,12 @@
+这是为你更新后的完整 `README.md`。
+
+本次更新重点：
+1. **进度跟踪表**：勾选并更新了 **Day 03** 的完成状态。
+2. **技术日志沉淀**：新增了 **🚀 Day 03 进展**，深度复盘了主窗口“左导右表”三段式拓扑、`QStackedWidget` 语义化页面管理，以及今天开发中踩坑排查的 **`setupUi` 初始化时序空指针闪退**、**`QStackedWidget` 运行时无头机制** 与 **对象树排序对页面索引的干扰及指针解耦方案**。
+
+---
+
+```markdown
 # IndustrialMonitor - V1 (工业设备智能监控看板)
 
 一个基于 C++17 与 Qt 6 构建的现代化跨平台工业级设备监控看板系统。V1 阶段致力于确立规范的工控架构范式，摆脱传统初级控件堆砌，打造具备高视觉质感与毫秒级吞吐表现的 SCADA 监控原型。
@@ -33,8 +42,8 @@ IndustrialMonitor/
     ├── models/                   # 核心 MVC 数据模型（QAbstractTableModel 派生）
     ├── views/                    # 界面视图（MainWindow、LoginDialog、自定义委托）
     │   ├── mainwindow.h
-    │   ├── mainwindow.cpp
-    │   ├── mainwindow.ui
+    │   ├── mainwindow.cpp        # [Day 3] 落地三段式布局、尺寸锁与堆叠容器
+    │   ├── mainwindow.ui         # [Day 3] 视口设计：sidebarWidget + QStackedWidget
     │   ├── LoginDialog.h          # [Day 2] 工业登录弹窗头文件
     │   ├── LoginDialog.cpp        # [Day 2] 登录防呆与持久化逻辑
     │   └── LoginDialog.ui         # [Day 2] 登录弹窗布局文件
@@ -56,12 +65,14 @@ IndustrialMonitor/
   - 使用 `QLineEdit::addAction` 实现尾部内嵌交互，支持密码明密文无缝切换。
   - 集成 `QSettings` 建立 `bin/config.ini` 持久化通道，实现凭证记住与启动自动回显。
   - 在 `main.cpp` 中建立阻断式生命周期（`exec() == Accepted`），拦截未授权启动。
-- [ ] **Day 03: 主窗口结构与侧边栏布局 (MainWindow Layout)**
-  - 构建 `MainWindow` 核心布局：左侧紧凑导航栏 + 右侧 `QStackedWidget` 堆叠核心。
-  - 建立工控系统全屏自适应与响应式尺寸边界（Min: 1280x800）。
+- [x] **Day 03: 主窗口骨架与多页面堆叠布局 (MainWindow & QStackedWidget)**
+  - 搭建工业标准“左侧固定导航栏 + 右侧多页工作区 + 底部状态栏”三段式拓扑。
+  - 建立工业防挤压尺寸边界：锁定初始与最小安全尺寸 `1280 × 800`，侧边栏死锁 `200px`。
+  - 清空中心部件边距与间隙（Margins 归零），消除视觉接缝。
+  - 预设 `QStackedWidget` 4 大业务页面语义化占位（`pageMonitor`、`pageTrend`、`pageAlarm`、`pageSetting`），引入对象指针切页杜绝魔法数字。
 - [ ] **Day 04: 动态侧边栏导航控制 (Navigation Binding)**
-  - 基于互斥 `QButtonGroup` 驱动侧边控制栏。
-  - 绑定信号槽，实现“设备监控 / 实时曲线 / 报警日志 / 系统设置”页面毫秒级切换。
+  - 在侧边栏封装互斥 `QButtonGroup` 与高质感控制按钮。
+  - 绑定信号槽，实现点击侧边栏毫秒级无缝驱动右侧 `QStackedWidget` 切换对应视窗。
 - [ ] **Day 05: 工业状态栏与全域状态看板 (StatusBar)**
   - 封装底部高信噪比 `QStatusBar`：操作员标识、全局通信链路指示、高精度时钟。
 
@@ -189,7 +200,7 @@ IndustrialMonitor/
 
 **Day 02 运行快照：**
 
-![Day 02 登录弹窗效果](./readme.assets/file-20260912083057035.png) *(注：可将今日登录窗口运行截图放入此路径替换)*
+![Day 02 登录弹窗效果](./readme.assets/file-20260912083057035.png)
 
 ```ini
 # bin/config.ini 运行期持久化快照
@@ -197,6 +208,62 @@ IndustrialMonitor/
 RememberMe=true
 Username=admin
 Password=MTIzNDU2
+```
+
+---
+
+## 🚀 Day 03 进展：主窗口骨架与多页面堆叠布局 (MainWindow & QStackedWidget)
+
+### 1. 技术核心：工控拓扑骨架与单窗口多视图容器
+作为工业监控软件的视口中枢，Day 03 确立了工控桌面的物理空间骨架：
+- **工控“左导右表”三段式拓扑**：
+  - **左侧导航栏 (`sidebarWidget`)**：设定水平尺寸死锁（`setFixedWidth(200)`），无论主窗体如何剧烈缩放，导航基线永不形变。
+  - **右侧工作区 (`contentWidget` + `QStackedWidget`)**：设置最高拉伸优先级（`Expanding`），承载所有核心业务。
+  - **底部状态栏 (`QStatusBar`)**：固定 `28px` 高度，为全域指示灯与时钟保留工业级底栏通道。
+- **语义化单窗口多页面机制 (QStackedWidget)**：
+  - 在堆叠容器中预置 4 个语义化子页面（`pageMonitor`、`pageTrend`、`pageAlarm`、`pageSetting`），每个子页独立配置垂直布局，杜绝子控件漂浮。
+  - 抛弃易引起越界和顺序错乱的整型索引切页（`setCurrentIndex`），确立基于对象指针的工业切页规范（`setCurrentWidget(ui->pageMonitor)`）。
+- **防挤压尺寸边界与无缝贴合**：
+  - 硬性设定最小安全分辨率 `1280 × 800`，杜绝工业显示屏低分辨率下控件重叠折叠。
+  - 全局清空中心部件的布局边距（`ContentsMargins: 0`）与控件间距（`Spacing: 0`），消除任何视觉杂缝。
+
+### 2. 开发复盘：Day 03 攻克的时序与视图认知陷阱
+
+#### **陷阱 A: 控件初始化时序颠倒引发的空指针闪退 (Segmentation Fault)**
+- **现象**：在 `MainWindow` 构造函数中编写边距清理代码 `if (ui->centralWidget->layout())` 时，程序刚启动即触发 `0xC0000005` 崩溃闪退。
+- **根因**：代码写在了 `ui->setupUi(this)` **之前**。Qt 的界面指针只有在 `setupUi` 执行完毕后才被实例化；在其实例化前访问 `ui->...` 属于典型的野指针解引用。此外，Qt 原生默认生成的对象名全小写为 `centralwidget`（注意 `w` 小写）。
+- **解决**：明确“先 `setupUi` 后操作控件”的绝对铁律；并改用 `this->centralWidget()` 原生方法双重安全判空，或直接在 Qt Designer 属性面板中将 Margin 归零，彻底消灭运行时风险。
+
+#### **陷阱 B: QStackedWidget 无头容器的认知厘清**
+- **现象**：暗黑主题应用后，运行程序发现 `stackedWidget` 右上角原本在设计器里可见的翻页按钮全部消失，误以为是被深色样式覆盖。
+- **根因**：`QStackedWidget` 在运行时是一个“无头（Headless）”代码驱动容器，设计器右上角的小箭头仅是用于编辑预览的辅助图元，运行时本身就没有任何自带 Tab 按钮。
+- **解决**：明确组件分工——`QStackedWidget` 负责页面容器静默管理，外部切换统一由明日的左侧侧边栏按钮（信号槽）驱动。
+
+#### **陷阱 C: 对象树字母排序与切页鲁棒性**
+- **现象**：Qt Designer 对象树开启默认字母升序后，页面展示顺序变为 `pageAlarm` -> `pageMonitor` -> `pageSetting` -> `pageTrend`，引起页面索引与业务顺序脱节的疑虑。
+- **根因**：对象树的排序仅为 IDE 视图的可视化组织，绝不更改内部真实的构建顺序与物理内存。
+- **解决**：采用指针级驱动 `setCurrentWidget(ui->pageMonitor)`，代码完全与数值索引（Index 0/1/2/3）解耦，无论对象树如何重排，切页逻辑永远绝对命中。同时为每个 Page 补齐顶级布局，消除对象树上的红色未布局禁用标（🚫）。
+
+### 3. 如何验证
+1. **登录联动唤醒验证**：
+   - 登录框输入 `admin` / `123456`，按回车通过校验。
+   - 登录框平滑销毁，`1280 × 800` 工业深色主视窗瞬间在屏幕中央激活展开。
+2. **响应式缩放与防挤压测试**：
+   - 鼠标强行向内收缩主窗体，到达 `1280 × 800` 边界时被刚性拦截，无法进一步压缩。
+   - 双击标题栏最大化铺满屏幕，左侧导航栏宽度纹丝不动保持 `200px`，右侧核心工作区无缝平滑延展。
+3. **堆叠容器指针切页验证**：
+   - 构造函数调用 `ui->stackedWidget->setCurrentWidget(ui->pageMonitor);`，右侧稳定呈现“📟 设备监控看板”占位信息。
+   - 修改为 `ui->pageTrend` 并热重载，内容秒级无抖动切换，证明容器与各子页独立布局运转正常。
+
+**Day 03 运行快照：**
+
+![[file-20260913124425578.png]]
+
+```text
+[MainWindow] Initialization complete. Geometry: 1280x800.
+[MainWindow] Sidebar locked at 200px.
+[MainWindow] StackedWidget initialized with 4 semantic pages (Default: pageMonitor).
+[StatusBar] Ready: "系统就绪 | 核心监控引擎已启动"
 ```
 
 ---
