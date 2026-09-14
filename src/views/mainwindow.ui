@@ -25,23 +25,45 @@
      <widget class="QWidget" name="sidebarWidget" native="true">
       <layout class="QVBoxLayout" name="verticalLayout">
        <item>
-        <widget class="QLabel" name="label_2">
-         <property name="font">
-          <font>
-           <pointsize>20</pointsize>
-          </font>
-         </property>
+        <widget class="QPushButton" name="btnMonitor">
          <property name="text">
-          <string>📟 设备监控看板 [待接入]</string>
+          <string>📟 设备监控</string>
          </property>
         </widget>
        </item>
        <item>
-        <widget class="QPushButton" name="pushButton">
+        <widget class="QPushButton" name="btnTrend">
          <property name="text">
-          <string>导航控制台</string>
+          <string>📈 实时曲线</string>
          </property>
         </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="btnAlarm">
+         <property name="text">
+          <string>📜 报警日志</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="btnSetting">
+         <property name="text">
+          <string>⚙️ 系统设置</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <spacer name="verticalSpacer">
+         <property name="orientation">
+          <enum>Qt::Orientation::Vertical</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>20</width>
+           <height>40</height>
+          </size>
+         </property>
+        </spacer>
        </item>
       </layout>
      </widget>

@@ -1,12 +1,4 @@
-这是为你更新后的完整 `README.md`。
 
-本次更新重点：
-1. **进度跟踪表**：勾选并更新了 **Day 03** 的完成状态。
-2. **技术日志沉淀**：新增了 **🚀 Day 03 进展**，深度复盘了主窗口“左导右表”三段式拓扑、`QStackedWidget` 语义化页面管理，以及今天开发中踩坑排查的 **`setupUi` 初始化时序空指针闪退**、**`QStackedWidget` 运行时无头机制** 与 **对象树排序对页面索引的干扰及指针解耦方案**。
-
----
-
-```markdown
 # IndustrialMonitor - V1 (工业设备智能监控看板)
 
 一个基于 C++17 与 Qt 6 构建的现代化跨平台工业级设备监控看板系统。V1 阶段致力于确立规范的工控架构范式，摆脱传统初级控件堆砌，打造具备高视觉质感与毫秒级吞吐表现的 SCADA 监控原型。
@@ -42,8 +34,8 @@ IndustrialMonitor/
     ├── models/                   # 核心 MVC 数据模型（QAbstractTableModel 派生）
     ├── views/                    # 界面视图（MainWindow、LoginDialog、自定义委托）
     │   ├── mainwindow.h
-    │   ├── mainwindow.cpp        # [Day 3] 落地三段式布局、尺寸锁与堆叠容器
-    │   ├── mainwindow.ui         # [Day 3] 视口设计：sidebarWidget + QStackedWidget
+    │   ├── mainwindow.cpp        # [Day 4] 落地导航互斥组与 QMap 指针路由切页
+    │   ├── mainwindow.ui         # [Day 4] 侧边栏按钮排版与底部弹簧
     │   ├── LoginDialog.h          # [Day 2] 工业登录弹窗头文件
     │   ├── LoginDialog.cpp        # [Day 2] 登录防呆与持久化逻辑
     │   └── LoginDialog.ui         # [Day 2] 登录弹窗布局文件
@@ -69,10 +61,12 @@ IndustrialMonitor/
   - 搭建工业标准“左侧固定导航栏 + 右侧多页工作区 + 底部状态栏”三段式拓扑。
   - 建立工业防挤压尺寸边界：锁定初始与最小安全尺寸 `1280 × 800`，侧边栏死锁 `200px`。
   - 清空中心部件边距与间隙（Margins 归零），消除视觉接缝。
-  - 预设 `QStackedWidget` 4 大业务页面语义化占位（`pageMonitor`、`pageTrend`、`pageAlarm`、`pageSetting`），引入对象指针切页杜绝魔法数字。
-- [ ] **Day 04: 动态侧边栏导航控制 (Navigation Binding)**
-  - 在侧边栏封装互斥 `QButtonGroup` 与高质感控制按钮。
-  - 绑定信号槽，实现点击侧边栏毫秒级无缝驱动右侧 `QStackedWidget` 切换对应视窗。
+  - 预设 `QStackedWidget` 4 大业务页面语义化占位，确立对象指针切页规范。
+- [x] **Day 04: 动态侧边栏导航控制 (Navigation Binding)**
+  - 封装 `QButtonGroup` 互斥状态机，全面开启按钮 `setCheckable(true)`。
+  - 构建 `QMap<QAbstractButton*, QWidget*>` 纯指针映射路由，摆脱硬编码整数索引。
+  - 侧边栏底部垫入 `Vertical Spacer` 弹性支撑，按钮高度锁定 `46px` 并设为 `Expanding`。
+  - 精雕 QSS 常驻选中态（`:checked`），实现 `4px` 亮蓝边条与微光质感。
 - [ ] **Day 05: 工业状态栏与全域状态看板 (StatusBar)**
   - 封装底部高信噪比 `QStatusBar`：操作员标识、全局通信链路指示、高精度时钟。
 
@@ -257,7 +251,7 @@ Password=MTIzNDU2
 
 **Day 03 运行快照：**
 
-![[file-20260913124425578.png]]
+![Day 03 主窗口布局效果](./readme.assets/file-20260913124425578.png)
 
 ```text
 [MainWindow] Initialization complete. Geometry: 1280x800.
@@ -268,10 +262,80 @@ Password=MTIzNDU2
 
 ---
 
+## 🚀 Day 04 进展：动态侧边栏导航控制与互斥路由 (Navigation & QButtonGroup)
+
+### 1. 技术核心：单选互斥状态机与指针路由解耦
+作为串联主工作区多视窗的中枢神经，Day 04 落地了工业标准的侧边栏导航控制机制：
+- **`QButtonGroup` 统一状态托管**：
+  - 将侧边栏 4 个导航按钮编入 `m_navigationGroup`，开启 `setExclusive(true)` 强互斥锁。
+  - 为按钮开启 `setCheckable(true)` 双稳态，彻底告别传统写多个 `connect` 手动清除其他按钮高亮的冗余代码。
+- **纯指针解耦路由 (`QMap<QAbstractButton*, QWidget*>`)**：
+  - 弃用传统的 `switch(index)` 或硬编码数字，建立按钮实例到目标页面的强类型指针映射。
+  - 单一信号槽响应 `buttonClicked`，通过 `m_pageMap[btn]` 毫秒级分发跳转，页面顺序无论后期如何重组均坚如磐石。
+- **弹性布局与大点击热区规范**：
+  - 在侧边栏纵向布局底部植入 `Vertical Spacer`（垂直弹簧），将导航按钮死死压向顶部停靠，杜绝全屏缩放时按钮被纵向离散拉扯。
+  - 按钮高度严格锁定为工控大热区 `46px`，水平尺寸策略赋予 `Expanding`，无感撑满侧边栏宽度。
+
+### 2. 开发复盘：Day 04 攻克的指针生命周期与尺寸约束陷阱
+
+#### **陷阱 A (核心血泪史): 悬空指针噩梦——声明了指针却遗漏 `new QButtonGroup(this)`**
+- **现象**：编写完导航初始化逻辑后，程序进入主窗口的瞬间直接触发 `0xC0000005` 段错误（Access Violation）闪退。
+- **断点定位**：排查发现程序崩溃精准发生在循环体的第一步：
+  ```cpp
+  for (auto *btn : m_navBtn) {
+      m_navigationGroup->addButton(btn); // 💥 瞬间崩溃在此处！
+  }
+  ```
+- **根因深剖**：
+  - 在 `mainwindow.h` 中，我们声明了成员变量：`QButtonGroup *m_navigationGroup;`。
+  - **在 C++ 中，指针声明后不会自动分配内存！** 它的初始值是一个随机的垃圾地址（Wild Pointer 野指针）或是 `nullptr`。
+  - 由于未在构造函数或初始化函数中对其执行 `new` 实例化，代码直接执行 `m_navigationGroup->addButton(btn)`，相当于对一个虚无的内存地址发起成员函数调用，操作系统内核立即下发段错误中断进程。
+- **解法与 Qt 对象树（Object Tree）生命周期防御**：
+  - **解决之道**：在调用前必须先落地堆内存分配：
+    ```cpp
+    m_navigationGroup = new QButtonGroup(this); // 传入 this 确立父子所有权
+    ```
+  - **为什么析构函数绝不需要手动 `delete m_navigationGroup`？**
+    * 当传入 `this`（即 `MainWindow`）时，`m_navigationGroup` 就被挂载到了 Qt 的**底层父子对象树（Object Tree）**上。
+    * 当 `MainWindow` 窗口关闭析构时，Qt 底层会自动遍历其 `children()` 列表，安全调用 `delete` 释放所有子对象。
+    * **结论**：只要在 `new` 时传入了 `this` 父指针，不仅彻底终结了野指针风险，而且由 Qt 框架全权接管生命周期，零内存泄漏，**在析构函数里手动写 `delete` 反而是画蛇添足的危险行为**！
+
+#### **陷阱 B: 布局内尺寸约束误区——寻找 `setWidth` 与死锁宽度的弊端**
+- **认知纠偏**：Qt 的 `QWidget` 根本没有 `setWidth()` 函数；若试图调用 `setFixedWidth(200)` 把按钮宽度写死，会彻底破坏布局系统的弹性。
+- **工程解法**：由于父容器 `sidebarWidget` 已锁死为 `200px`，只需调用 `btn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed)` 与 `btn->setFixedHeight(46)`，按钮即可自动贴合父容器的宽度；同时把 `sidebarWidget` 的布局外边距清零（`setContentsMargins(0, 0, 0, 0)`），使按钮与左侧边框无缝贴合。
+
+#### **陷阱 C: 侧边栏常驻高亮失焦恢复的排查**
+- **现象**：点击导航按钮后虽然变色，但点击右侧工作区任意空白后，选中的按钮底色变灰退回普通态。
+- **解决**：在 QSS 中精准使用 `:checked` 伪类（而非 `:focus` 伪类）。`:focus` 会随点击转移而丢失，而 `:checked` 由 `QButtonGroup` 互斥状态机硬性维持，结合 `border-left: 4px solid #007ACC;`，完美实现了工控软件常驻发光指示条质感。
+
+### 3. 如何验证
+1. **互斥单选与常驻高亮测试**：
+   - 登录进入系统，默认“📟 设备监控”按钮亮起深蓝底色并展示左侧 4px 亮蓝竖条。
+   - 点击“📈 实时曲线”，“设备监控”按钮高亮秒级熄灭退回暗灰底色，“实时曲线”按钮即刻点亮。
+   - 鼠标点击右侧工作区任意空白处使侧边栏失去键盘/鼠标焦点，**断言**：当前选中的按钮依然高亮锁定，绝不退色。
+2. **指针路由秒切视窗测试**：
+   - 连续快速点击“报警日志”与“系统设置”，右侧 `QStackedWidget` 内容以 <1ms 的无感速度精准切换为对应子页面，无任何闪烁白屏或错位。
+3. **窗口剧烈缩放自适应**：
+   - 双击标题栏全屏最大化，左侧 4 个导航按钮紧凑聚集在顶部，高度恒定 46px；下方垂直弹簧平滑吸收垂直方向全部拉伸空间，排版毫无变形。
+
+**Day 04 运行快照：**
+![Day 04 导航联动效果](./readme.assets/file-20260913223000000.png)
+
+```text
+[Navigation] Group initialized with 4 buttons. Exclusive mode: ON.
+[Router] PageMap registered:
+  - btnMonitor -> page01Monitor (Active)
+  - btnTrend   -> page02Trend
+  - btnAlarm   -> page03Alarm
+  - btnSetting -> page04Setting
+[Switch] Switched to page: page01Monitor
+```
+
+---
+
 ## 💻 编译与运行
 - **开发套件**：Qt 6.8+ (MinGW 64-bit)
 - **构建步骤**：
   1. 使用 Qt Creator 打开根目录下的 `IndustrialMonitor.pro`。
   2. 点击左侧工具栏 **“构建” -> “执行 qmake”**。
   3. 点击左下角 **运行 (Ctrl + R)** 即可启动监控看板原型。
-```
