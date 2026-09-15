@@ -67,7 +67,7 @@ IndustrialMonitor/
   - 构建 `QMap<QAbstractButton*, QWidget*>` 纯指针映射路由，摆脱硬编码整数索引。
   - 侧边栏底部垫入 `Vertical Spacer` 弹性支撑，按钮高度锁定 `46px` 并设为 `Expanding`。
   - 精雕 QSS 常驻选中态（`:checked`），实现 `4px` 亮蓝边条与微光质感。
-- [ ] **Day 05: 工业状态栏与全域状态看板 (StatusBar)**
+- [x] **Day 05: 工业状态栏与全域状态看板 (StatusBar)**
   - 封装底部高信噪比 `QStatusBar`：操作员标识、全局通信链路指示、高精度时钟。
 
 ### 第 2 阶段：侧边导航交互与专业 Model/View 架构
@@ -331,6 +331,79 @@ Password=MTIzNDU2
 [Switch] Switched to page: page01Monitor
 ```
 
+---
+以下是专门为你整理的 **Day 05 独立 README 记录**，去除了图片依赖，深度还原了今天排查的两大经典底层陷阱：
+
+---
+
+## 🚀 Day 05 进展：工业状态栏引擎与全域通信状态监控 (QStatusBar & QTimer)
+
+### 1. 技术核心：全域感知底栏与动态时钟引擎
+作为工业监控看板的时空基准与通信健康度中枢，Day 05 落地了模块化的工业底栏引擎：
+- **三段式分区与常驻隔离机制**：
+  - **左侧普通交互区 (`addWidget(..., 1)`)**：挂载操作员凭证（`m_labelOperator`），赋予弹性拉伸权重 `1`。当外部触发 `showMessage()` 临时告警时，此区域自动让渡展示，倒计时结束后无缝复原。
+  - **中间通信指示区 (`addPermanentWidget`)**：封装链路组合部件（10x10 发光球体 + 状态说明文字），拥有永久常驻权，绝不被临时消息顶替。
+  - **右侧高精度时钟区 (`addPermanentWidget`)**：基于 `QTimer` 1000ms 轮询更新 `yyyy-MM-dd HH:mm:ss`，固定 `190px` 宽度并采用等宽字体（Consolas），彻底消除数字秒数跳变引发的界面横向微颤（Anti-Jitter）。
+- **纯 QSS 像素级圆形发光指示灯**：
+  - 弃用外部图片资源，纯粹基于 `border-radius: 5px` 与高对比边框渲染四态微光指示灯（Normal 荧光绿 `#00E676`、Warning 亮黄 `#FFD600`、Fault 绯红 `#FF1744`、Offline 灰 `#757575`）。
+  - 基于 Qt 动态属性机制（`setProperty("status", ...)`）驱动样式表热切换。
+
+---
+
+### 2. 开发复盘：Day 05 攻克的状态栏区域抢占与动态样式陷阱
+
+#### **陷阱 A: 永久部件挤压与时钟时序陷阱——为什么 `showMessage` 会凭空隐形？**
+- **现象**：调用 `statusBar()->showMessage("正在同步设备数据...", 3000)` 后，底栏文字始终纹丝不动，依然只显示操作员信息，临时消息毫无反应。
+- **根因深度排查**：
+  1. **区域权重踩踏**：起初错误地调用了 `addPermanentWidget(m_labelOperator, 1)`。在 Qt 机制中，`addPermanentWidget` 会被强制排布在右侧的永久区，给其设置权重 `1` 导致永久区把整个底栏空间彻底占死，左侧本应属于 `showMessage` 的临时消息区被**挤压成了 0 宽度**；同时永久部件拥有绝对豁免权，`showMessage` 无法将其隐藏，导致临时消息彻底被遮蔽。
+  2. **构造函数超时时序**：在构造函数执行 `showMessage(..., 3000)` 时，3000ms 定时器在窗口真正完成渲染弹出前就已在底层跑满或超时结束，导致肉眼以为未显示。
+  3. **历史代码覆盖**：前期代码 `initLayout()` 中遗留的 `showMessage("系统就绪...", 0)` 以无超时参数直接顶替了后续的消息。
+- **解决方案**：
+  - 左侧严格使用 `statusBar()->addWidget(m_labelOperator, 1)` 挂载；中间与右侧组件使用 `addPermanentWidget`。
+  - 明确工控使用场景：`showMessage` 不应写死在构造期，而应作为按钮点击（如 `btnRefresh`）或异步通讯反馈时的即时通知通道。
+
+#### **陷阱 B: 变量名手误致使 QSS 动态属性赋错对象——指示灯“不亮”之谜**
+- **现象**：`setLinkStatus(LinkStatus::Normal, ...)` 调用后，链路文字正常更新，但前方的 10x10 小圆点指示灯始终是透明不可见的，QSS 样式完全未渲染。
+- **排查过程**：
+  - 单独为指示灯设置内联样式 `setStyleSheet("background-color: green;")` 时，圆点可以正常显现，证明布局与尺寸无问题。
+  - 最终在 `setLinkStatus` 的实现中捕获到了致命手误：
+    ```cpp
+    m_labellLinkStatus->setProperty("status", statusVal); // ❌ 设错对象！将 status 属性挂到了后面的文本标签上
+    m_labelLinked->style()->unpolish(m_labelLinked);      // 刷新的却是前面的小圆点指示灯
+    m_labelLinked->style()->polish(m_labelLinked);
+    ```
+- **机制原理**：
+  - `m_labelLinked` 自身根本没有拿到 `status="normal"` 属性，导致 QSS 选择器 `QLabel#linkLed[status="normal"]` 判定未命中，指示灯维持默认透明。
+  - 同时再次印证了 Qt 的经典机制：**修改 `setProperty` 后，Qt 不会自动刷新样式引擎**，必须显式调用 `style()->unpolish(widget)` 和 `style()->polish(widget)` 强刷重绘。
+- **解决方案**：纠正变量为 `m_labelLinked->setProperty("status", statusVal);`，小圆点荧光绿高光瞬间点亮。
+
+---
+
+### 3. 如何验证
+1. **秒级时钟稳定防抖测试**：
+   - 登录进入系统，底栏右侧立即显现当前年月日与高精度秒数。
+   - 观察数字从 `1` 跳变至 `8`，右侧时钟由于预留了 `190px` 空间及 Consolas 等宽字体，**整条状态栏无任何横向抽搐或抖动**。
+2. **三色呼吸灯状态切换测试**：
+   - 启动时自动初始化为 `Normal` 态，呈现荧光绿微光圆点。
+   - 代码中切换至 `Warning`、`Fault` 或 `Offline`，指示灯秒级变黄/变红/变灰，文字提示即时同步。
+3. **临时消息动态穿透与复原测试**：
+   - 点击界面刷新按钮，触发 `statusBar()->showMessage("🔄 正在向底层 PLC 刷新同步设备数据...", 2000)`。
+   - **断言**：左侧 `👤 操作员: admin` 瞬间被冲刷替换为刷新提示，右侧通信绿灯与时钟丝毫不受干扰；2 秒后提示文字自动隐去，操作员标签平滑恢复原位。
+
+---
+
+### 4. 运行快照（控制台与日志状态）
+
+```text
+[StatusBar] Initialized:
+  - Left Zone     : [Normal Widget] m_labelOperator (Stretch: 1)
+  - Center Zone   : [Permanent Widget] linkWidget (LED: linkLed, Status: Normal)
+  - Right Zone    : [Permanent Widget] m_labelClock (190px, Monospace)
+[ClockTimer] Started (Interval: 1000ms). Initial timestamp: 2026-09-14 10:24:00
+[LinkStatus] Property updated -> Target: linkLed, Status: "normal", Text: "通信链路: 在线 (10ms)"
+[DynamicFeedback] Temporary message displayed: "🔄 正在向底层 PLC 刷新同步设备数据..." (Duration: 2000ms)
+[DynamicFeedback] Timeout reached -> Operator label restored smoothly.
+```
 ---
 
 ## 💻 编译与运行

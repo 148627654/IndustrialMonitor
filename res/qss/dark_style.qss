@@ -144,3 +144,41 @@ QWidget#sidebarWidget QPushButton:checked {
 QWidget#sidebarWidget QPushButton:pressed {
     background-color: #094771;
 }
+
+/* 状态栏底座 */
+QStatusBar {
+    background-color: #0E639C; /* 工业深蓝底色 */
+    color: #FFFFFF;
+    min-height: 28px;
+    max-height: 28px;
+    border-top: 1px solid #1177BB;
+}
+
+/* 四态圆形呼吸发光指示灯 (利用圆角与边框发光) */
+QLabel#linkLed {
+    border-radius: 5px; /* 10px 宽度的一半即为正圆 */
+}
+
+/* 1. 正常在线 (荧光绿) */
+QLabel#linkLed[status="normal"] {
+    background-color: #00E676;
+    border: 1px solid #B9F6CA;
+}
+
+/* 2. 预警延迟 (高亮黄) */
+QLabel#linkLed[status="warning"] {
+    background-color: #FFD600;
+    border: 1px solid #FFFF8D;
+}
+
+/* 3. 故障断链 (绯红) */
+QLabel#linkLed[status="fault"] {
+    background-color: #FF1744;
+    border: 1px solid #FF8A80;
+}
+
+/* 4. 离线休眠 (中性灰) */
+QLabel#linkLed[status="offline"] {
+    background-color: #757575;
+    border: 1px solid #BDBDBD;
+}

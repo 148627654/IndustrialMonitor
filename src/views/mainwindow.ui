@@ -74,7 +74,7 @@
        <item>
         <widget class="QStackedWidget" name="stackedWidget">
          <property name="currentIndex">
-          <number>2</number>
+          <number>1</number>
          </property>
          <widget class="QWidget" name="page02Trend">
           <widget class="QLabel" name="label_4">
@@ -97,22 +97,105 @@
           </widget>
          </widget>
          <widget class="QWidget" name="page01Monitor">
-          <widget class="QLabel" name="label_3">
+          <widget class="QWidget" name="horizontalLayoutWidget">
            <property name="geometry">
             <rect>
-             <x>590</x>
-             <y>270</y>
-             <width>233</width>
-             <height>718</height>
+             <x>0</x>
+             <y>0</y>
+             <width>1171</width>
+             <height>80</height>
             </rect>
            </property>
-           <property name="font">
-            <font>
-             <pointsize>20</pointsize>
-            </font>
+           <layout class="QHBoxLayout" name="horizontalLayout_2">
+            <item>
+             <widget class="QLineEdit" name="editSearchDevice">
+              <property name="placeholderText">
+               <string>🔍 输入设备编号/IP 搜索...</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="btnRefresh">
+              <property name="text">
+               <string>刷新</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="btnAddDevice">
+              <property name="text">
+               <string>新增设备</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <spacer name="horizontalSpacer_4">
+              <property name="orientation">
+               <enum>Qt::Orientation::Horizontal</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>40</width>
+                <height>20</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+            <item>
+             <spacer name="horizontalSpacer_3">
+              <property name="orientation">
+               <enum>Qt::Orientation::Horizontal</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>40</width>
+                <height>20</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+            <item>
+             <spacer name="horizontalSpacer_2">
+              <property name="orientation">
+               <enum>Qt::Orientation::Horizontal</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>40</width>
+                <height>20</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+            <item>
+             <spacer name="horizontalSpacer">
+              <property name="orientation">
+               <enum>Qt::Orientation::Horizontal</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>40</width>
+                <height>20</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+           </layout>
+          </widget>
+          <widget class="QFrame" name="frame">
+           <property name="geometry">
+            <rect>
+             <x>0</x>
+             <y>90</y>
+             <width>1161</width>
+             <height>551</height>
+            </rect>
            </property>
-           <property name="text">
-            <string>📟 设备监控看板 [待接入]</string>
+           <property name="frameShape">
+            <enum>QFrame::Shape::StyledPanel</enum>
+           </property>
+           <property name="frameShadow">
+            <enum>QFrame::Shadow::Raised</enum>
            </property>
           </widget>
          </widget>
