@@ -29,6 +29,7 @@ public:
     void initLayout();
     void initNavigation();
     void initStatusBar();
+    void initMonitorPageUI();
 private:
     Ui::MainWindow *ui;
     QButtonGroup *m_navigationGroup;
@@ -40,7 +41,10 @@ private:
     QLabel *m_labelClock;
     QLabel *m_labellLinkStatus;
     QTimer *m_clockTimer;
+
     void setLinkStatus(LinkStatus status, const QString &text);
+    void initViewtable();
+
 private slots:
     void updateSystemTime();
     void on_btnRefresh_clicked();

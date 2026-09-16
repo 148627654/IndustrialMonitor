@@ -4,6 +4,9 @@
 #include <QTimer>
 #include <QDateTime>
 #include <QStyle>
+#include "../common/DeviceDef.h"
+#include <QStandardItemModel>
+
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
@@ -40,6 +43,8 @@ void MainWindow::initLayout()
 
     ui->sidebarWidget->setFixedWidth(200);
     // statusBar()->showMessage("系统就绪 | 核心监控引擎已启动", 0);
+
+    initMonitorPageUI();
 
 }
 
@@ -130,6 +135,15 @@ void MainWindow::initStatusBar()
     m_clockTimer->start(1000);
 }
 
+void MainWindow::initMonitorPageUI()
+{
+    if (ui->page01Monitor->layout()) {
+        ui->page01Monitor->layout()->setContentsMargins(15,15,15,15);
+        ui->page01Monitor->layout()->setSpacing(12);
+    }
+    initViewtable();
+}
+
 void MainWindow::setLinkStatus(LinkStatus status, const QString &text)
 {
     m_labellLinkStatus->setText(text);
@@ -146,6 +160,73 @@ void MainWindow::setLinkStatus(LinkStatus status, const QString &text)
     m_labelLinked->style()->unpolish(m_labelLinked);
     m_labelLinked->style()->polish(m_labelLinked);
     m_labelLinked->update();
+}
+
+void MainWindow::initViewtable()
+{
+    ui->tableViewDevices->setSelectionBehavior(QAbstractItemView::SelectRows);          //整行选择
+    ui->tableViewDevices->setSelectionMode(QAbstractItemView::SingleSelection);         //单行选择模式
+    ui->tableViewDevices->setEditTriggers(QAbstractItemView::NoEditTriggers);           //只读禁止直接编辑
+    ui->tableViewDevices->setAlternatingRowColors(true);                                //开启交替行底色
+    ui->tableViewDevices->setFocusPolicy(Qt::NoFocus);                                  //关闭默认虚线焦点框
+    ui->tableViewDevices->verticalHeader()->setVisible(false);                          //隐藏垂直行号表头
+    ui->tableViewDevices->horizontalHeader()->setHighlightSections(false);              //高亮锁定关闭
+    ui->tableViewDevices->horizontalHeader()->setStretchLastSection(true);              // 最后一列自适应撑满
+
+    /*
+        测试
+    */
+    QStandardItemModel *testModel = new QStandardItemModel(this);
+
+    // 1. 设置表头列名
+    QStringList headers = {
+        "设备编号", "设备名称", "IP地址", "端口",
+        "运行状态", "温度(℃)", "CPU占用", "内存占用"
+    };
+
+    // 2. 模拟 3 台工业设备假数据 (对应 DeviceInfo 结构)
+    QList<QList<QString>> mockRows = {
+        {"DEV-1001", "1号注塑机", "192.168.1.101", "502", "正常", "45.2", "28.5%", "42.1%"},
+        {"DEV-1002", "2号压铸机", "192.168.1.102", "502", "预警", "78.6", "82.0%", "65.4%"},
+        {"DEV-1003", "3号数控车床", "192.168.1.103", "502", "离线", "0.0",  "0.0%",  "0.0%"}
+    };
+
+    for (const auto &row : mockRows) {
+        QList<QStandardItem*> items;
+        for (const auto &text : row) {
+            items.append(new QStandardItem(text));
+        }
+
+        testModel->appendRow(items);
+    }
+    DeviceInfo my;
+    my.name="nullptr";
+    my.id="0";
+    my.ip="0.0.0.0";
+
+    QList<QStandardItem*> mylist;
+    /*
+    QString id;                 //设备编号
+    QString name;               //设备名称
+    QString ip;                 //IP地址
+    int port=7988;                   //端口号
+    DeviceStatus status=DeviceStatus::Offline;        //运行状态
+    double temperature=0.0;         //温度
+    double cpuUsage=0.0;            //CPU占用率
+    double memoryUsage=0.0;         //内存占用率
+    */
+
+    mylist.append(new QStandardItem(my.id));
+    mylist.append(new QStandardItem(my.name));
+    mylist.append(new QStandardItem(my.ip));
+    mylist.append(new QStandardItem(my.port));
+    mylist.append(new QStandardItem("在线"));
+    mylist.append(new QStandardItem(my.temperature));
+    mylist.append(new QStandardItem(my.cpuUsage));
+    mylist.append(new QStandardItem(my.memoryUsage));
+    testModel->appendRow(mylist);
+    // 3. 将模型装配到 TableView 视口上
+    ui->tableViewDevices->setModel(testModel);
 }
 
 void MainWindow::updateSystemTime()

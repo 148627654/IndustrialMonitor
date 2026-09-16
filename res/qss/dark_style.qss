@@ -182,3 +182,54 @@ QLabel#linkLed[status="offline"] {
     background-color: #757575;
     border: 1px solid #BDBDBD;
 }
+
+/* 核心表格视口 */
+QTableView {
+    background-color: #1E1E1E;
+    alternate-background-color: #252526; /* 斑马条纹交替微弱对比色 */
+    color: #DCDCDC;
+    gridline-color: transparent;
+    border: 1px solid #333333;
+    border-radius: 4px;
+    selection-background-color: #0E639C; /* 选中行工业科技蓝 */
+    selection-color: #FFFFFF;
+}
+
+/* 单元格微调 */
+QTableView::item {
+    padding: 6px 10px;
+    min-height: 32px;
+    border: none;
+}
+
+QTableView::item:hover {
+    background-color: #2D2D30;
+}
+
+QTableView::item:selected {
+    background-color: #0E639C;
+    color: #FFFFFF;
+}
+
+/* 水平表头 */
+QHeaderView {
+    background-color: #2D2D2D;
+    border: none;
+}
+
+QHeaderView::section {
+    background-color: #2D2D2D;
+    color: #CCCCCC;
+    padding: 6px 10px;
+    font-size: 13px;
+    font-weight: bold;
+    border: none;
+    border-right: 1px solid #3A3A3C;
+    border-bottom: 1px solid #3F3F46;
+    min-height: 30px;
+}
+
+QHeaderView::section:hover {
+    background-color: #383838;
+    color: #FFFFFF;
+}

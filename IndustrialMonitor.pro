@@ -32,9 +32,10 @@ SOURCES += \
     src/views/mainwindow.cpp
 
 HEADERS += \
+    src/common/DeviceDef.h \
     src/common/ThemeManager.h \
     src/views/logindialog.h \
-    src/views/mainwindow.h
+    src/views/mainwindow.h\
 
 FORMS += \
     src/views/logindialog.ui \

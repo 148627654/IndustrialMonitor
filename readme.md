@@ -405,7 +405,72 @@ Password=MTIzNDU2
 [DynamicFeedback] Timeout reached -> Operator label restored smoothly.
 ```
 ---
+以下是专门为你准备的 **Day 06 独立 README 内容**，去除了图片依赖，深度提炼了今天的开发成果与踩坑排查实录，可直接追加到你的 `README.md` 中：
 
+---
+
+## 🚀 Day 06 进展：设备数据实体建模与监控表格视口搭建 (DeviceDef & QTableView)
+
+### 1. 技术核心：实体对象化建模与工业表格交互硬化
+作为设备监控模块由“静态界面”向“数据驱动”蜕变的关键转折点，Day 06 确立了底层数据契约与工业表格视口规范：
+- **强类型工业数据实体建模 (`DeviceDef.h`)**：
+  - 定义强类型状态枚举 `enum class DeviceStatus`（Normal 绿、Warning 黄、Fault 红、Offline 灰），在编译期拦截非法状态并杜绝裸数字/裸字符串污染。
+  - 封装 `DeviceInfo` 业务结构体，采用纯原生数据类型（`double` 存温度与 CPU 占用率、`int` 存端口），为后续阈值计算、浮点比较、图表绘制与 Modbus 协议解析保留最高的精度与运算效率。
+- **现代工业级表格视口属性硬化 (`QTableView`)**：
+  - **人机工程防呆**：整行选中模式（`SelectRows`）、单行选择锁（`SingleSelection`）、只读锁定杜绝误编辑（`NoEditTriggers`）、消除点击虚线焦点框（`NoFocus`）。
+  - **视觉低噪化改造**：隐藏冗余的垂直行号表头（`verticalHeader()->setVisible(false)`），开启交替斑马行（`AlternatingRowColors`），隐藏刺眼硬质网格线（`setShowGrid(false)`），以温和的底色对比降低车间巡检疲劳。
+- **纯原生数据向视图层转化初探**：
+  - 实现了从单体 `DeviceInfo` 实例向 UI 表格的映射，建立了“**数据层管存储与计算，视图层管格式化呈现**”的标准解耦认知。
+
+---
+
+### 2. 开发复盘：Day 06 攻克的布局空指针与数据表现层陷阱
+
+#### **陷阱 A: 浮动孤儿布局引发的空指针段错误——0xC0000005 闪退深度排查**
+- **现象**：在 `initMonitorPageUI()` 中编写边距代码 `ui->page01Monitor->layout()->setContentsMargins(15, 15, 15, 15)` 时，程序瞬间崩溃闪退。
+- **根因深剖**：
+  - 在 Qt Designer 中从左侧工具箱直接拖入“Vertical Layout”时，生成的只是一个**悬浮孤立的内部矩形框**，父级容器 `page01Monitor` 本身并未被指定顶层布局（在对象树中呈现红色禁止标 🚫）。
+  - 因此调用 `ui->page01Monitor->layout()` 返回的是 **`nullptr`（0x00000000）**。紧接着执行 `->setContentsMargins()` 属于对空指针进行解引用，直接触发操作系统段错误（Access Violation 0xC0000005）强制杀死进程。
+- **解决方案**：
+  1. 在 Qt Designer 中选中 `page01Monitor`，点击顶部工具栏的 **“垂直布局 (Ctrl + 2)”**，使其成为真正接管页面的总指挥，消除红色 🚫 警告。
+  2. 融入 C++ 防御性编程习惯：在访问任何对象的 `layout()` 前，显式编写 `if (widget->layout())` 双重安全判空。
+
+#### **陷阱 B: 业务存储（怎么算）与界面呈现（怎么看）的类型认知**
+- **认知纠偏**：在初期构建模拟数据时，曾疑惑“结构体中已有 `int` 和 `double`，为何表格展示时要使用 `QString`？”
+- **架构本质**：
+  - **数据层必须原生**：若结构体使用字符串存温度，`"9.0"` 在字典序对比下会被误判为大于 `"80.0"`，会引发灾难性的误报/漏报；原生 `double` 才能直接进行 `if (temp > 80.0)` 告警与 Modbus 二进制协议打包。
+  - **表现层必须人机友好**：人类需要看带有量纲的文本（如 `"45.2 ℃"`、`"28.5%"`、`"正常"`）。视图层仅在渲染时刻负责把底层的纯数字“临时翻译”为人类可读的 `QString`。
+
+---
+
+### 3. 如何验证
+1. **单体 `DeviceInfo` 数据映射测试**：
+   - 构造单条结构体数据 `DeviceInfo my; my.name = "测试设备"; my.status = DeviceStatus::Offline;`。
+   - 挂载后启动程序，第一行精准呈现各个字段，浮点数格式化为保留 1 位小数，端口转为十进制字符。
+2. **暗黑无噪斑马条纹与整行选中验收**：
+   - 视口呈现 `#1E1E1E` 与 `#252526` 深灰交替底色，无刺眼白线。
+   - 鼠标点击任意单元格，整行瞬间亮起工业科技蓝（`#0E639C`），文字呈纯白高对比高亮。
+3. **视口响应式自适应铺满测试**：
+   - 全屏最大化主窗口，顶部工具栏与搜索框居左排布，下方表格视口无缝向右、向下完全伸展铺满，最后一列自动吸收剩余空间。
+
+---
+
+### 4. 运行快照（数据模型与视口状态）
+
+```text
+[DeviceDef] Entity schema registered:
+  - Fields: id(QString), name(QString), ip(QString), port(int), status(Enum), temp(double), cpu(double), mem(double)
+[TableView] Viewport configured for page01Monitor:
+  - SelectionMode   : SingleSelection / SelectRows
+  - Grid            : Hidden (Style: Alternating Dark Rows)
+  - FocusPolicy     : NoFocus (Zero dotted outline)
+  - VerticalHeader  : Hidden
+[DataPipeline] Mapping DeviceInfo -> Presentation Layer:
+  - Ingested: "DEV-1001", "1号注塑机", 192.168.1.101:502, Status: Normal -> Translated: "正常"
+  - Ingested: Temp=45.2000 -> Formatted: "45.2 ℃"
+  - Ingested: CPU=28.5000  -> Formatted: "28.5%"
+[UI Render] QTableView populated with dark industrial palette successfully.
+```
 ## 💻 编译与运行
 - **开发套件**：Qt 6.8+ (MinGW 64-bit)
 - **构建步骤**：
