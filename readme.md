@@ -97,18 +97,18 @@ IndustrialMonitor/
   - 联动状态栏动态输出全域设备台账与筛选命中指标。
 
 ### 第 3 阶段：核心硬件通信抽象 (IDevice) 与 v0.2-Beta 封版交付
-- [ ] **Day 11: 工业通信抽象基类 `IDevice` 架构设计**
+- [x] **Day 11: 工业通信抽象基类 `IDevice` 架构设计**
   - 遵循依赖倒置原则（DIP），确立工业通信纯虚基类 `IDevice`（基于 `QObject` 异步信号槽）。
   - 定义连接状态机枚举（`Disconnected / Connecting / Connected / Error`）与通信核心原语。
-- [ ] **Day 12: 通信连接元数据参数封装与通信协议配置**
+- [x] **Day 12: 通信连接元数据参数封装与通信协议配置**
   - 统一封装多协议网络参数类 `DeviceConfig`，覆盖 TCP 寻址与串口波特率配置。
   - 数据库表结构同步扩展，支持网络参数序列化持久化。
-- [ ] **Day 13: 虚拟仿真硬件驱动 (`MockDevice`) 落地**
+- [x] **Day 13: 虚拟仿真硬件驱动 (`MockDevice`) 落地**
   - 继承 `IDevice` 实现虚拟硬件驱动，模拟网络握手时延、正弦波传感器遥测生成与下发反馈。
-- [ ] **Day 14: 设备工厂模式 (`DeviceFactory`) 与驱动管理器初探**
+- [x] **Day 14: 设备工厂模式 (`DeviceFactory`) 与驱动管理器初探**
   - 编写简单工厂类 `DeviceFactory`，实现基于配置动态创建驱动多态指针。
   - 上层业务代码彻底摆脱对具体协议类的直接依赖。
-- [ ] **Day 15: 内存巡检、代码整洁度审计与 v0.2-Beta 封版交付**
+- [x] **Day 15: 内存巡检、代码整洁度审计与 v0.2-Beta 封版交付**
   - 全工程内存穿透式审计（连接池释放、工厂对象所有权、0 Warning 编译基线）。
   - 正式发布里程碑 Tag：`v0.2-Beta`！
 
@@ -189,3 +189,52 @@ IndustrialMonitor/
   1. 使用 Qt Creator 打开根目录下的 `IndustrialMonitor.pro`。
   2. 点击左侧工具栏 **“构建” -> “执行 qmake”**（首次引入 sql 模块必须执行）。
   3. 点击左下角 **运行 (Ctrl + R)** 即可启动监控看板 V2 原型。
+
+---
+
+## 🏭 V3 交付报告 (Iteration 3: 多线程引擎 · 节流总线 · 告警状态机)
+
+### 1. V3 核心架构成果一览
+
+| 模块 | 核心机制 | 关键文件 |
+|---|---|---|
+| **Worker-Object 多线程采集底座** | QThread + moveToThread 亲和性迁移、BlockingQueuedConnection 优雅停工 | `src/core/AcquisitionController.h/.cpp`、`AcquisitionWorker.h/.cpp` |
+| **驱动池与工厂解耦** | `std::map<QString, unique_ptr<IDevice>>` 子线程内调度、DIP 纯虚接口 | `src/hardware/idevice.h`、`devicefactory.cpp`、`mock/mockdevice.cpp` |
+| **16 位定点协议定标** | 原始寄存器 /10.0 物理量解码、电压→内存负荷映射 | `AcquisitionWorker::onPollTimeout` |
+| **自适应节流总线** | 33ms 视口节流 + deviceId 最新值合并覆盖 (Conflation)，原始总线保留供告警评估 | `AcquisitionController::onWorkerBatchReady/onThrottleTimeout` |
+| **断线自愈退避状态机** | 指数退避 `min(1s × 2^n, 16s)`、5 次上限转 Error、故障注入/自愈闭环 | `AcquisitionWorker::processReconnections/triggerReconnection` |
+| **ISA-18.2 三级告警中心** | Info/Warning/Critical 三级 + 回差消抖死区 + 500 容量环形历史缓冲 + 消音生命周期 | `src/alarm/alarmmanager.h/.cpp` |
+| **视口告警视觉跃迁** | 状态灯呼吸灯、进度条警示色阶、整行半透明微光 (RowGlowDelegate) | `devicetablemodel.cpp`、`rowglowdelegate.cpp` |
+| **全局悬浮告警条 (HUD)** | maximumHeight 属性动画抽屉、多重告警队列角标 i/n、消音滚动闭环 | `src/views/widgets/AlarmBanner.h/.cpp` |
+| **报警日志流水** | 只读 7 列流水表、时间倒序、严重深红/预警明黄、与告警中心 100% 同步 | `MainWindow::initAlarmLogPage/refreshAlarmLog` |
+
+### 2. 时序流转图
+
+```text
+┌─────────────── 采集子线程 (AcquisitionWorker) ───────────────┐
+│  DriverPool (IDevice×N) ── 20~1000ms 心跳轮询 ── 寄存器定标    │
+└──────────────────────────┬───────────────────────────────────┘
+                           │ telemetryBatchReady (跨线程队列连接)
+                           ▼
+┌─────────────── 主线程中枢 (AcquisitionController) ───────────┐
+│  原始总线 telemetryBatchReady ──► AlarmManager 三级状态机      │
+│       │                        (回差消抖 / 环形缓冲 / 消音)    │
+│       └─► 节流阀 33ms 合并桶 ──► throttledBatchReady           │
+└───────────────┬──────────────────────────────┬───────────────┘
+                ▼                              ▼
+    DeviceTableModel (整行微光/状态灯)    AlarmBanner (Critical 悬浮弹出)
+    DeviceProxyModel (搜索/排序/过滤)     page03Alarm 日志流水表
+```
+
+### 3. V3 收官验收记录
+
+- **编译基线**：`-Wall -Wextra` 全量重建 **0 Errors / 0 Warnings**。
+- **全链路高压压测** (`testFullPipelineStressAndConcurrency`)：50Hz 采集洪流 + 250ms 排序洗牌 + 搜索扰动 + 92℃ 超温注入 → Critical 告警条弹出 → 自动消音收起，全程零崩溃、零死锁，优雅停机断言全通过。
+- **零内存膨胀**：环形历史缓冲锁定 500 上限、节流桶最新值覆盖、驱动池 unique_ptr 批量析构、工作集内存曲线水平基线。
+- **真实界面实测**：状态列跃迁 (91.3℃→故障 / 78.0℃→预警)、整行微光 (奇偶斑马行均生效)、告警条跨页穿透弹出与消音折叠、日志流水确认状态同步 —— 全部逐像素采样验证通过。
+
+### 4. 里程碑
+
+```text
+v0.3-Preview  —  QThread 并发采集 + 自适应节流总线 + ISA-18.2 告警状态机 + 全局 HUD 告警条
+```

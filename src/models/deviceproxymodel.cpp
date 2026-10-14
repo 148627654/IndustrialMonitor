@@ -16,8 +16,21 @@ void DeviceProxyModel::setSearchKeyword(const QString &keyword)
     invalidateFilter();                         // 触发重新过滤计算
 }
 
+void DeviceProxyModel::setStatusFilter(int status)
+{
+    m_statusFilter=status;
+    invalidateFilter();                 // 触发重新过滤
+}
+
 bool DeviceProxyModel::filterAcceptsRow(int source_row, const QModelIndex &source_parent) const
 {
+    if(m_statusFilter!=-1)
+    {
+        QModelIndex statusIdx=sourceModel()->index(source_row,DeviceTableModel::Col_Status,source_parent);
+        int devStatus=statusIdx.data(Qt::UserRole).toInt();
+        if(devStatus!=m_statusFilter)
+            return false;
+    }
     if(m_keyword.isEmpty())
         return true;
     QModelIndex idindex=sourceModel()->index(source_row,DeviceTableModel::Col_Id,source_parent);

@@ -18,3 +18,6 @@ Makefile*
 # 系统临时文件
 .DS_Store
 Thumbs.db
+# 本地工具与 AI 助手工作目录 (不上传)
+.claude/
+.qtcreator/

@@ -4,5 +4,11 @@
         <file>icons/logo.jpg</file>
         <file>icons/eye.png</file>
         <file>icons/eye_close.png</file>
+        <file>icons/add.svg</file>
+        <file>icons/change.svg</file>
+        <file>icons/copy.svg</file>
+        <file>icons/delete.svg</file>
+        <file>icons/refresh.svg</file>
+        <file>icons/admin.svg</file>
     </qresource>
 </RCC>

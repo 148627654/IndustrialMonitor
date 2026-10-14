@@ -31,6 +31,15 @@ public:
 
     //获取当前连结名称
     QString connectionName() const {return m_connectionName;}
+
+    // 按依赖顺序创建数据表与索引
+    bool initTables();
+
+    // 首次建库时注入初始 10 条仿真台账
+    bool initSeedData();
+
+    // 辅助检查指定表是否为空
+    bool isTableEmpty(const QString &tableName);
 private:
     DatabaseManager();
     ~DatabaseManager();

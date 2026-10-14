@@ -5,7 +5,9 @@
 #include <QObject>
 #include <QList>
 #include <QStringList>
+#include <TelemetryDef.h>
 #include "../common/DeviceDef.h"
+#include "AlarmDef.h"
 
 /**
  * @brief 工业设备核心数据表格模型 (MVC 架构数据源)
@@ -37,6 +39,11 @@ private:
     QList<DeviceInfo> m_devices;
     QStringList m_headers;
 
+    QHash<QString,int> m_idToRow;
+
+    void rebuildIndexMap();
+    // 告警等级 → 设备状态规范映射 (Critical→故障 / Warning→预警 / Info→正常)
+    void applyAlarmStatus(DeviceInfo &dev, AlarmLevel level);
     // QAbstractItemModel interface
 public:
     int rowCount(const QModelIndex &parent) const;
@@ -52,6 +59,12 @@ public:
 
     const QList<DeviceInfo>& deviceList() const { return m_devices; }
     void addDevice(const DeviceInfo &device);
+
+    void updateDevice(int row, const DeviceInfo &device);
+    bool removeDevice(int row);
+
+    void updateTelemetryBatch(const QList<TelemetryFrame> &frames);
+
 };
 
 #endif // DEVICETABLEMODEL_H

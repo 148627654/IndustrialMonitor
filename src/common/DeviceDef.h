@@ -1,7 +1,7 @@
 #ifndef DEVICEDEF_H
 #define DEVICEDEF_H
 #include <QString>
-
+#include "../hardware/DeviceConfig.h"
 enum class DeviceStatus
 {
     Offline = 0, Normal = 1, Warning = 2, Fault = 3
@@ -17,6 +17,9 @@ struct DeviceInfo
     double temperature=0.0;         //温度
     double cpuUsage=0.0;            //CPU占用率
     double memoryUsage=0.0;         //内存占用率
+
+    ProtocolType protocol = ProtocolType::ModbusTcp;
+    DeviceConfig config;
 };
 
 #endif // DEVICEDEF_H

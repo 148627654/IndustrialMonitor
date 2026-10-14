@@ -20,6 +20,9 @@ public:
     explicit DeviceProxyModel(QObject *parent = nullptr);
     // 设置搜索关键字 (槽函数)
     void setSearchKeyword(const QString &keyword);
+
+    void setStatusFilter(int status);
+
     // QSortFilterProxyModel interface
 protected:
     bool filterAcceptsRow(int source_row, const QModelIndex &source_parent) const;
@@ -29,6 +32,7 @@ protected:
     bool lessThan(const QModelIndex &source_left, const QModelIndex &source_right) const;
 private:
     QString m_keyword;
+    int m_statusFilter = -1; // -1 代表全部放行
 };
 
 #endif // DEVICEPROXYMODEL_H

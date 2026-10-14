@@ -161,6 +161,16 @@
               </widget>
              </item>
              <item>
+              <widget class="QPushButton" name="btnDeleteDevice">
+               <property name="enabled">
+                <bool>false</bool>
+               </property>
+               <property name="text">
+                <string>删除设备</string>
+               </property>
+              </widget>
+             </item>
+             <item>
               <spacer name="horizontalSpacer_4">
                <property name="orientation">
                 <enum>Qt::Orientation::Horizontal</enum>

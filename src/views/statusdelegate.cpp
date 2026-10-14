@@ -19,6 +19,11 @@ void StatusDelegate::paint(QPainter *painter, const QStyleOptionViewItem &option
     opt.text.clear();                                       //清空画布
     QApplication::style()->drawControl(QStyle::CE_ItemViewItem,&opt,painter);
 
+    // 后铺半透明告警微光 (防斑马纹覆盖；自身指示灯与文字随后绘制不受染色影响)
+    const QVariant bg=index.data(Qt::BackgroundRole);
+    if(bg.canConvert<QBrush>())
+        painter->fillRect(option.rect,bg.value<QBrush>());
+
     // 提取颜色
     QString text=index.data(Qt::DisplayRole).toString();
     QColor coreColor;
