@@ -1,4 +1,4 @@
-QT       += core gui widgets sql
+QT       += core gui widgets sql printsupport
 
 TARGET    = IndustrialMonitor
 TEMPLATE  = app
@@ -31,13 +31,16 @@ INCLUDEPATH += \
     $$PWD/src/dao \
     $$PWD/src/hardware/mock \
     $$PWD/src/alarm \
-    $$PWD/src/db
+    $$PWD/src/db \
+    $$PWD/src/charts
 
 # -------------------------------------------------------------
 # 3. 源码与头文件映射
 # -------------------------------------------------------------
 SOURCES += \
     src/alarm/alarmmanager.cpp \
+    src/charts/qcustomplot.cpp \
+    src/charts/RealtimePlotWidget.cpp \
     src/common/validatorutils.cpp \
     src/core/acquisitioncontroller.cpp \
     src/dao/devicedao.cpp \
@@ -63,6 +66,8 @@ SOURCES += \
 HEADERS += \
     src/alarm/AlarmDef.h \
     src/alarm/alarmmanager.h \
+    src/charts/qcustomplot.h \
+    src/charts/RealtimePlotWidget.h \
     src/common/DeviceDef.h \
     src/common/TelemetryDef.h \
     src/common/thememanager.h \

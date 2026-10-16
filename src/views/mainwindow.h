@@ -10,6 +10,7 @@
 #include "../models/deviceproxymodel.h"
 class QTableWidget;
 class AlarmBanner;
+class RealtimePlotWidget;
 QT_BEGIN_NAMESPACE
 
 namespace Ui {
@@ -59,6 +60,7 @@ private:
 
     void initAlarmBanner();                     // 顶部全局悬浮告警条装配与全域联动
     void initAlarmLogPage();                    // 第 3 页报警日志流水表装配
+    void initPlotPage();                        // 第 2 页实时曲线双 Y 轴波形组件装配
 
 private slots:
     void refreshAlarmLog();                     // 与告警中心历史缓冲区全量同步刷新
@@ -83,6 +85,7 @@ private:
 
     AlarmBanner *m_alarmBanner;                 // 全局悬浮告警条 (HUD)
     QTableWidget *m_alarmTable;                 // 第 3 页报警日志流水表
+    RealtimePlotWidget *m_realtimePlot;         // 第 2 页实时曲线双 Y 轴波形组件
 
     // QWidget interface
 protected:

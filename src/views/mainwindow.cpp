@@ -21,6 +21,7 @@
 #include <QClipboard>
 #include <acquisitioncontroller.h>
 #include "widgets/AlarmBanner.h"
+#include "RealtimePlotWidget.h"
 #include <QTableWidget>
 #include <QHeaderView>
 
@@ -39,11 +40,13 @@ MainWindow::MainWindow(QWidget *parent)
     , m_proxyModel(new DeviceProxyModel(this))
     , m_alarmBanner(nullptr)
     , m_alarmTable(nullptr)
+    , m_realtimePlot(nullptr)
 {
     ui->setupUi(this);
     initLayout();
     initAlarmBanner();
     initAlarmLogPage();
+    initPlotPage();
     initNavigation();
     initStatusBar();
 }
@@ -395,6 +398,17 @@ void MainWindow::refreshAlarmLog()
             m_alarmTable->setItem(i, c, item);
         }
     }
+}
+
+void MainWindow::initPlotPage()
+{
+    // 第 2 页"实时曲线"：挂载双 Y 轴工业波形组件，自适应撑满整个工作区
+    QVBoxLayout *layout = new QVBoxLayout(ui->page02Trend);
+    layout->setContentsMargins(15, 15, 15, 15);
+    layout->setSpacing(0);
+
+    m_realtimePlot = new RealtimePlotWidget(ui->page02Trend);
+    layout->addWidget(m_realtimePlot);
 }
 
 void MainWindow::setLinkStatus(LinkStatus status, const QString &text)

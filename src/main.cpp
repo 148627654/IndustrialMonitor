@@ -14,6 +14,8 @@
 #include "core/acquisitionworker.h"
 #include "alarmmanager.h"
 #include "widgets/AlarmBanner.h"
+#include "RealtimePlotWidget.h"
+#include "qcustomplot.h"
 #include <QVBoxLayout>
 #include <QUuid>
 // V2 014
@@ -892,6 +894,62 @@ void testFullPipelineStressAndConcurrency()
     qInfo() << "================================================================================";
 }
 
+// V4 001 双 Y 轴视口拓扑与暗黑主题装配单测
+void testRealtimePlotDualAxisTopology()
+{
+    qInfo() << "================ [Dual-Axis Realtime Plot Topology Test Start] ================";
+
+    RealtimePlotWidget plotW;
+    QCustomPlot *p = plotW.plot();
+    Q_ASSERT(p != nullptr);
+
+    // 1. 左 Y 轴：温度量纲 0~120
+    Q_ASSERT(qFuzzyCompare(p->yAxis->range().lower, 0.0));
+    Q_ASSERT(qFuzzyCompare(p->yAxis->range().upper, 120.0));
+    Q_ASSERT(p->yAxis->label() == "模具温度 (℃)");
+    qInfo() << "Step 1: Left Y-Axis temperature scale [0, 120] verified.";
+
+    // 2. 右 Y 轴：可见 + 负荷量纲 0~100
+    Q_ASSERT(p->yAxis2->visible());
+    Q_ASSERT(qFuzzyCompare(p->yAxis2->range().lower, 0.0));
+    Q_ASSERT(qFuzzyCompare(p->yAxis2->range().upper, 100.0));
+    Q_ASSERT(p->yAxis2->label() == "主轴负荷 (%)");
+    qInfo() << "Step 2: Right Y-Axis load scale [0, 100] visible & isolated.";
+
+    // 3. 两条曲线绑定不同物理轴，绝无交叉干涉
+    Q_ASSERT(p->graphCount() >= 2);
+    Q_ASSERT(p->graph(0)->keyAxis() == p->xAxis && p->graph(0)->valueAxis() == p->yAxis);
+    Q_ASSERT(p->graph(1)->keyAxis() == p->xAxis && p->graph(1)->valueAxis() == p->yAxis2);
+    qInfo() << "Step 3: Two graphs bound to isolated physical axes.";
+
+    // 4. 曲线警示色系断言
+    Q_ASSERT(p->graph(0)->pen().color() == QColor("#FF9800"));   // 温度亮橙
+    Q_ASSERT(p->graph(1)->pen().color() == QColor("#00E5FF"));   // 负荷青蓝
+    qInfo() << "Step 4: Alert color scheme verified (orange / cyan).";
+
+    // 5. 数据追加与量程固定不越界
+    plotW.appendTemperature(10.0, 88.5);
+    plotW.appendLoad(10.0, 62.3);
+    Q_ASSERT(p->graph(0)->dataCount() == 1);
+    Q_ASSERT(p->graph(1)->dataCount() == 1);
+    qInfo() << "Step 5: Data append pipeline verified.";
+
+    // 6. 暗黑主题核心底色断言 (QBrush 背景时 background() 返回空 QPixmap，必须整体渲染后采样像素)
+    QPixmap rendered = p->toPixmap(600, 400);
+    QImage renderImg = rendered.toImage();
+    Q_ASSERT(!renderImg.isNull());
+    // 画布外圈 (10,10 位于坐标区之外) 应为 #1A1A1A
+    Q_ASSERT(renderImg.pixelColor(10, 10) == QColor("#1A1A1A"));
+    // 坐标区中心应为 #121212 (或极暗网格线，亮度必须 < 40)
+    QColor axisCol = renderImg.pixelColor(300, 200);
+    Q_ASSERT(axisCol.red() < 40 && axisCol.green() < 40 && axisCol.blue() < 40);
+    Q_ASSERT(p->legend->visible());
+    qInfo() << "Step 6: Dark SCADA theme core colors verified.";
+
+    qInfo() << ">>> SUCCESS: Dual-Axis Topology & Dark Theme 100% Solid!";
+    qInfo() << "================ [Dual-Axis Realtime Plot Topology Test End: All Passed] ================";
+}
+
 int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
@@ -920,7 +978,8 @@ int main(int argc, char *argv[])
     // testAlarmEvaluationAndDeadbandPipeline();
     // testModelAlarmVisualLinkagePipeline();
     // testAlarmBannerLifecyclePipeline();
-    testFullPipelineStressAndConcurrency();
+    // testFullPipelineStressAndConcurrency();
+    testRealtimePlotDualAxisTopology();
     // 3. 身份认证模态拦截
     LoginDialog loginDlg;
     if (loginDlg.exec() != QDialog::Accepted) {
