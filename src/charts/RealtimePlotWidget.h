@@ -1,6 +1,7 @@
 #ifndef REALTIMEPLOTWIDGET_H
 #define REALTIMEPLOTWIDGET_H
 
+#include "qcustomplot.h"
 #include <QWidget>
 
 class QCustomPlot;
@@ -24,16 +25,23 @@ public:
     // 暴露底层绘图引擎 (供后续遥测数据追加、缩放与导出交互)
     QCustomPlot *plot() const { return m_plot; }
 
-    // 追加温度采样点 (自动挂载左轴温度曲线)
-    void appendTemperature(double timeSec, double celsius);
-    // 追加负荷采样点 (自动挂载右轴负荷曲线)
-    void appendLoad(double timeSec, double percent);
+    // 唯一数据入口：向两条曲线追加一个采样时刻的物理量
+    // (timestamp 采用含毫秒的 Unix 秒级浮点时间戳，内部自动执行 5 分钟环形淘汰与视口推进)
+    void addDataPoint(double timestamp, double temperature, double cpuUsage);
+    // 清空历史数据并重置
+    void clearData();
+    // 配置时间窗口大小 (默认 300 秒)
+    void setTimeWindowSpan(int seconds);
+    int timeWindowSpan() const { return m_windowSpanSeconds; }
 
 private:
     void setupPlot();       // 双轴拓扑与曲线装配 (配置期严禁反复 replot)
     void setupDarkTheme();  // 工业暗黑 SCADA 主题注入
 
     QCustomPlot *m_plot = nullptr;
+    QCPGraph *m_tempGraph=nullptr;
+    QCPGraph *m_cpuGraph=nullptr;
+    int m_windowSpanSeconds{300}; // 滑动窗口宽度 (秒)
 };
 
 #endif // REALTIMEPLOTWIDGET_H

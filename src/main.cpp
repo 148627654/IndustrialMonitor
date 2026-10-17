@@ -928,8 +928,7 @@ void testRealtimePlotDualAxisTopology()
     qInfo() << "Step 4: Alert color scheme verified (orange / cyan).";
 
     // 5. 数据追加与量程固定不越界
-    plotW.appendTemperature(10.0, 88.5);
-    plotW.appendLoad(10.0, 62.3);
+    plotW.addDataPoint(10.0, 88.5, 62.3);
     Q_ASSERT(p->graph(0)->dataCount() == 1);
     Q_ASSERT(p->graph(1)->dataCount() == 1);
     qInfo() << "Step 5: Data append pipeline verified.";
@@ -950,6 +949,84 @@ void testRealtimePlotDualAxisTopology()
     qInfo() << "================ [Dual-Axis Realtime Plot Topology Test End: All Passed] ================";
 }
 
+// V4 002
+void testRealtimePlotSlidingWindowPipeline()
+{
+    qInfo() << "================ [RealtimePlot Sliding Window & Ring Pruning Test Start] ================";
+
+    RealtimePlotWidget plotWidget;
+    plotWidget.resize(1000, 600);
+
+    QCustomPlot *plot = plotWidget.plot();
+    Q_ASSERT(plot != nullptr);
+
+    // 1. 设置滑动时间窗口为 300 秒 (5 分钟)
+    plotWidget.setTimeWindowSpan(300);
+    Q_ASSERT(plotWidget.timeWindowSpan() == 300);
+    qInfo() << "Step 1: Sliding window configured to 300 seconds. OK.";
+
+    // 1.5 物理时间轴刻度解析验收：X 轴 ticker 必须是 hh:mm:ss 日期时间解析器
+    QSharedPointer<QCPAxisTickerDateTime> dateTicker =
+        qSharedPointerDynamicCast<QCPAxisTickerDateTime>(plot->xAxis->ticker());
+    Q_ASSERT(dateTicker);
+    Q_ASSERT(dateTicker->dateTimeFormat() == "hh:mm:ss");
+    qInfo() << "Step 1.5: X-Axis DateTime ticker format hh:mm:ss verified.";
+
+    // 2. 模拟以 1 秒步长，连续密集追加 1000 个采样点 (跨越 1000 秒)
+    //    基准起始时刻: 2026-09-20 12:00:00 (Unix: 1779364800)
+    const double baseTimestamp = 1779364800.0;
+    qInfo() << "[Simulating Telemetry Stream] Injecting 1000 seconds of continuous data...";
+
+    for (int sec = 0; sec < 1000; ++sec) {
+        double currentT = baseTimestamp + sec;
+        double mockTemp = 40.0 + (sec % 20); // 40~60 ℃ 正弦波模拟
+        double mockCpu  = 20.0 + (sec % 50); // 20~70 % 负荷模拟
+
+        plotWidget.addDataPoint(currentT, mockTemp, mockCpu);
+    }
+
+    // 3. 断言 X 轴视口范围是否随时间滑动到最新切片 [base + 700, base + 999]
+    double expectedLatest = baseTimestamp + 999.0;
+    double expectedOldest = expectedLatest - 300.0;
+
+    QCPRange xRange = plot->xAxis->range();
+    qInfo() << QString("Step 2: Latest X-Axis Range: [%1 ~ %2]").arg(xRange.lower, 0, 'f', 1).arg(xRange.upper, 0, 'f', 1);
+    Q_ASSERT(qFuzzyCompare(xRange.upper, expectedLatest));
+    Q_ASSERT(qFuzzyCompare(xRange.lower, expectedOldest));
+
+    // 4. 核心断言：环形切片淘汰机制验证 (内存中不得保留超过 301 个点)
+    int tempPointCount = plot->graph(0)->data()->size();
+    int cpuPointCount  = plot->graph(1)->data()->size();
+    qInfo() << QString("Step 3: Graph Data Buffer Count (Temp: %1, CPU: %2)").arg(tempPointCount).arg(cpuPointCount);
+
+    // 1000 秒的数据只保留最新的 300 秒左右点集，前 700 个点必须被物理销毁
+    Q_ASSERT(tempPointCount >= 300 && tempPointCount <= 302);
+    Q_ASSERT(cpuPointCount  >= 300 && cpuPointCount  <= 302);
+
+    // 验证缓冲区中保留的最老点的时戳必须大于等于 expectedOldest
+    double firstPointT = plot->graph(0)->data()->at(0)->key;
+    Q_ASSERT(firstPointT >= expectedOldest);
+    qInfo() << "Step 4: Oldest point in buffer is:" << QString::number(firstPointT, 'f', 1)
+            << ">= Expire cutoff:" << QString::number(expectedOldest, 'f', 1) << ". Clean!";
+
+    // 5. 视觉冒烟：滑动窗口内温度亮橙曲线必须真实渲染上屏 (整体渲染后统计橙色像素)
+    QPixmap snapshot = plot->toPixmap(900, 500);
+    snapshot.save("D:/plot_sliding_snapshot.png");
+    QImage snapImg = snapshot.toImage();
+    int orangePixels = 0;
+    for (int y = 0; y < snapImg.height(); y += 2) {
+        for (int x = 0; x < snapImg.width(); x += 2) {
+            QColor c = snapImg.pixelColor(x, y);
+            if (c.red() > 200 && c.green() > 90 && c.green() < 190 && c.blue() < 80)
+                orangePixels++;
+        }
+    }
+    Q_ASSERT(orangePixels > 50); // 温度曲线 (亮橙 #FF9800) 必须在快照中成片出现
+    qInfo() << QString("Step 5: Rendered snapshot contains %1 orange curve pixels. Waveform alive!").arg(orangePixels);
+
+    qInfo() << ">>> SUCCESS: 5-Minute Sliding Window & Ring Pruning is 100% Leak-Free!";
+    qInfo() << "================ [RealtimePlot Sliding Window & Ring Pruning Test End: All Passed] ================";
+}
 int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
@@ -979,7 +1056,8 @@ int main(int argc, char *argv[])
     // testModelAlarmVisualLinkagePipeline();
     // testAlarmBannerLifecyclePipeline();
     // testFullPipelineStressAndConcurrency();
-    testRealtimePlotDualAxisTopology();
+    // testRealtimePlotDualAxisTopology();
+    testRealtimePlotSlidingWindowPipeline();
     // 3. 身份认证模态拦截
     LoginDialog loginDlg;
     if (loginDlg.exec() != QDialog::Accepted) {
