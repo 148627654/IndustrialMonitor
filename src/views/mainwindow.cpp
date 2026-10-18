@@ -409,6 +409,13 @@ void MainWindow::initPlotPage()
 
     m_realtimePlot = new RealtimePlotWidget(ui->page02Trend);
     layout->addWidget(m_realtimePlot);
+
+    // 注入全厂设备台账 (复用已载入的模型数据，与表格台账 100% 同源一致)
+    m_realtimePlot->setDeviceList(m_deviceModel->deviceList());
+
+    // 大动脉贯通：节流遥测总线 → 图表解复用路由中枢 (仅提取当前选中设备帧)
+    connect(&AcquisitionController::instance(), &AcquisitionController::throttledBatchReady,
+            m_realtimePlot, &RealtimePlotWidget::onTelemetryBatchReceived);
 }
 
 void MainWindow::setLinkStatus(LinkStatus status, const QString &text)

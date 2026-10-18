@@ -1027,6 +1027,155 @@ void testRealtimePlotSlidingWindowPipeline()
     qInfo() << ">>> SUCCESS: 5-Minute Sliding Window & Ring Pruning is 100% Leak-Free!";
     qInfo() << "================ [RealtimePlot Sliding Window & Ring Pruning Test End: All Passed] ================";
 }
+
+// V4 003 设备解复用分发与通道控制单测
+void testRealtimePlotRoutingAndDemuxPipeline()
+{
+    qInfo() << "================ [RealtimePlot Routing & Demux Test Start] ================";
+
+    RealtimePlotWidget plotWidget;
+    plotWidget.resize(1000, 600);
+
+    // 1. 初始化两台设备
+    DeviceInfo d1; d1.id = "DEV-1001"; d1.name = "1号高速注塑机";
+    DeviceInfo d2; d2.id = "DEV-1002"; d2.name = "2号精密冲压机";
+    plotWidget.setDeviceList({d1, d2});
+
+    // 断言初始默认选中第 1 台
+    Q_ASSERT(plotWidget.currentDeviceId() == "DEV-1001");
+    qInfo() << "Step 1: Default selected device confirmed as DEV-1001. OK.";
+
+    // 2. 模拟全厂批量遥测帧广播 (同时包含 DEV-1001 与 DEV-1002)
+    QDateTime now = QDateTime::currentDateTime();
+    TelemetryFrame f1; f1.deviceId = "DEV-1001"; f1.temperature = 42.5; f1.cpuUsage = 28.0; f1.timestamp = now;
+    TelemetryFrame f2; f2.deviceId = "DEV-1002"; f2.temperature = 78.5; f2.cpuUsage = 85.0; f2.timestamp = now;
+
+    plotWidget.onTelemetryBatchReceived({f1, f2});
+
+    QCustomPlot *plot = plotWidget.plot();
+    Q_ASSERT(plot->graph(0)->dataCount() == 1);
+    double lastVal = plot->graph(0)->data()->at(0)->value;
+    Q_ASSERT(qFuzzyCompare(lastVal, 42.5));
+    qInfo() << "Step 2: Correctly ingested DEV-1001 telemetry (42.5 ℃) and ignored DEV-1002. Demux OK.";
+
+    // 3. 模拟操作员切换设备至 DEV-1002
+    QMetaObject::invokeMethod(&plotWidget, "onDeviceChanged", Qt::DirectConnection, Q_ARG(int, 1));
+    Q_ASSERT(plotWidget.currentDeviceId() == "DEV-1002");
+    Q_ASSERT(plot->graph(0)->dataCount() == 0); // 旧点已清空，绝无跨机台飞线
+    qInfo() << "Step 3: Switched to DEV-1002, old buffer cleared cleanly. Flyline prevention OK.";
+
+    // 4. 再次广播批量帧，必须捕获 DEV-1002 的 78.5 ℃
+    plotWidget.onTelemetryBatchReceived({f1, f2});
+    Q_ASSERT(plot->graph(0)->dataCount() == 1);
+    Q_ASSERT(qFuzzyCompare(plot->graph(0)->data()->at(0)->value, 78.5));
+    qInfo() << "Step 4: Now listening to DEV-1002 correctly (78.5 ℃). OK.";
+
+    // 5. 通道显隐与 Y 轴联动验证
+    const QList<QCheckBox *> chks = plotWidget.findChildren<QCheckBox *>();
+    QCheckBox *chkTemp = nullptr;
+    QCheckBox *chkAuto = nullptr;
+    for (QCheckBox *c : chks) {
+        if (c->text().contains("模具温度")) chkTemp = c;
+        if (c->text().contains("自动跟随")) chkAuto = c;
+    }
+    Q_ASSERT(chkTemp && chkAuto);
+
+    chkTemp->setChecked(false); // 取消勾选温度通道
+    Q_ASSERT(!plot->graph(0)->visible());
+    Q_ASSERT(!plot->yAxis->visible());
+    Q_ASSERT(plot->graph(1)->visible());
+    chkTemp->setChecked(true);
+    Q_ASSERT(plot->graph(0)->visible());
+    Q_ASSERT(plot->yAxis->visible());
+    qInfo() << "Step 5: Channel visibility & Y-Axis linkage verified.";
+
+    // 6. 自动滚动定格 / 追平验证 (必须经真实批量路由路径，定格逻辑位于解复用层)
+    const double tBase = now.toMSecsSinceEpoch() / 1000.0;
+    QDateTime tsBase = QDateTime::fromMSecsSinceEpoch(qint64(tBase * 1000.0));
+    TelemetryFrame fBase = f2;
+    fBase.timestamp = tsBase; fBase.temperature = 50.0; fBase.cpuUsage = 30.0;
+    plotWidget.onTelemetryBatchReceived({fBase});
+    Q_ASSERT(qFuzzyCompare(plot->xAxis->range().upper, tBase));
+
+    chkAuto->setChecked(false); // 定格
+    TelemetryFrame fLater = f2;
+    fLater.timestamp = QDateTime::fromMSecsSinceEpoch(qint64((tBase + 50.0) * 1000.0));
+    fLater.temperature = 52.0; fLater.cpuUsage = 32.0;
+    plotWidget.onTelemetryBatchReceived({fLater});
+    Q_ASSERT(qFuzzyCompare(plot->xAxis->range().upper, tBase)); // 视口保持冻结
+    qInfo() << "Step 6a: Auto-scroll frozen, viewport held at previous latest. OK.";
+
+    chkAuto->setChecked(true);  // 重新跟随 → 秒级追平
+    Q_ASSERT(qFuzzyCompare(plot->xAxis->range().upper, tBase + 50.0));
+    qInfo() << "Step 6b: Auto-scroll resumed, viewport snapped to latest. OK.";
+
+    // 7. 真实引擎端到端贯通 (节流总线 → 解复用 → 滑动窗口)
+    AcquisitionController &controller = AcquisitionController::instance();
+    controller.init();
+    QObject::connect(&controller, &AcquisitionController::throttledBatchReady,
+                     &plotWidget, &RealtimePlotWidget::onTelemetryBatchReceived);
+
+    const QList<DeviceInfo> dbDevices = DeviceDao::queryAllDevices();
+    Q_ASSERT(!dbDevices.isEmpty());
+    plotWidget.setDeviceList(dbDevices); // 选中数据库首台设备
+    const QString targetId = plotWidget.currentDeviceId();
+
+    controller.start(500); // 500ms 心跳
+    {
+        QEventLoop loop;
+        QTimer::singleShot(2600, &loop, &QEventLoop::quit);
+        loop.exec();
+    }
+    controller.stop();
+
+    const int livePoints = plot->graph(0)->dataCount();
+    Q_ASSERT(livePoints >= 3); // 2.6 秒 / 500ms 至少 4~5 个采样周期
+    qInfo() << QString("Step 7: Live engine E2E pumped %1 points for [%2] via throttle bus.")
+                   .arg(livePoints).arg(targetId);
+
+    // 读数标签必须已被实时刷新
+    bool readoutUpdated = false;
+    const QList<QLabel *> labels = plotWidget.findChildren<QLabel *>();
+    for (QLabel *l : labels) {
+        if (l->text().contains("温度:")) { readoutUpdated = true; break; }
+    }
+    Q_ASSERT(readoutUpdated);
+
+    // 视觉冒烟：整体控件快照必须包含亮橙温度曲线与工具条文字像素
+    // (show 到屏幕外再 grab：完整走 show/polish/真实绘制路径，与主界面渲染完全同源，且不闪窗)
+    plotWidget.move(-3000, -3000);
+    plotWidget.show();
+    for (int flush = 0; flush < 5; ++flush)
+        QApplication::processEvents();
+    QPixmap widgetSnapshot = plotWidget.grab();
+    widgetSnapshot.save("D:/plot_routing_snapshot.png");
+    QImage snapImg = widgetSnapshot.toImage();
+    int orangePixels = 0;
+    for (int y = 0; y < snapImg.height(); y += 2) {
+        for (int x = 0; x < snapImg.width(); x += 2) {
+            QColor c = snapImg.pixelColor(x, y);
+            if (c.red() > 200 && c.green() > 90 && c.green() < 190 && c.blue() < 80)
+                orangePixels++;
+        }
+    }
+    Q_ASSERT(orangePixels > 50);
+    qInfo() << QString("Step 8: Widget snapshot contains %1 orange waveform pixels.").arg(orangePixels);
+
+    // 工具条文字必须真实渲染 (顶部区域存在非暗像素 = 标签/复选框/读数文本已上屏)
+    int toolbarPixels = 0;
+    for (int y = 0; y < 80; ++y) {
+        for (int x = 0; x < snapImg.width(); ++x) {
+            QColor c = snapImg.pixelColor(x, y);
+            if (c.red() > 45 || c.green() > 45 || c.blue() > 45)
+                toolbarPixels++;
+        }
+    }
+    Q_ASSERT(toolbarPixels > 100);
+    qInfo() << QString("Step 9: Toolbar rendered with %1 text pixels.").arg(toolbarPixels);
+
+    qInfo() << ">>> SUCCESS: RealtimePlot Channel Routing & Device Selector Linkage is 100% Solid!";
+    qInfo() << "================ [RealtimePlot Routing & Demux Test End: All Passed] ================";
+}
 int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
@@ -1057,7 +1206,8 @@ int main(int argc, char *argv[])
     // testAlarmBannerLifecyclePipeline();
     // testFullPipelineStressAndConcurrency();
     // testRealtimePlotDualAxisTopology();
-    testRealtimePlotSlidingWindowPipeline();
+    // testRealtimePlotSlidingWindowPipeline();
+    testRealtimePlotRoutingAndDemuxPipeline();
     // 3. 身份认证模态拦截
     LoginDialog loginDlg;
     if (loginDlg.exec() != QDialog::Accepted) {
