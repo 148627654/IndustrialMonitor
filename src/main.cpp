@@ -15,6 +15,7 @@
 #include "alarmmanager.h"
 #include "widgets/AlarmBanner.h"
 #include "RealtimePlotWidget.h"
+#include "PlotTracer.h"
 #include "qcustomplot.h"
 #include <QVBoxLayout>
 #include <QUuid>
@@ -1176,6 +1177,87 @@ void testRealtimePlotRoutingAndDemuxPipeline()
     qInfo() << ">>> SUCCESS: RealtimePlot Channel Routing & Device Selector Linkage is 100% Solid!";
     qInfo() << "================ [RealtimePlot Routing & Demux Test End: All Passed] ================";
 }
+
+// V4 004 游标磁吸精度与二分算法单测
+void testPlotTracerSnappingPipeline()
+{
+    qInfo() << "================ [PlotTracer Binary Snapping Test Start] ================";
+
+    RealtimePlotWidget plotWidget;
+    plotWidget.resize(1000, 600);
+    // show 到屏幕外：保证坐标变换 (coordToPixel/pixelToCoord) 基于真实布局几何
+    plotWidget.move(-3000, -3000);
+    plotWidget.show();
+    for (int flush = 0; flush < 5; ++flush)
+        QApplication::processEvents();
+
+    QCustomPlot *plot = plotWidget.plot();
+    PlotTracer *tracer = plotWidget.tracer();
+    Q_ASSERT(plot && tracer);
+
+    // 1. 空数据防御：无数据时疯狂晃动鼠标，零崩溃且游标保持隐藏
+    tracer->updatePosition(QPoint(500, 300));
+    Q_ASSERT(!tracer->hasSnappedPoint());
+    Q_ASSERT(!tracer->isVisible());
+    qInfo() << "Step 1: Empty-data guard solid (no snap, no crash). OK.";
+
+    // 2. 手动注入 3 个已知时戳的离散校准点
+    plotWidget.addDataPoint(100.0, 40.0, 20.0);
+    plotWidget.addDataPoint(102.0, 55.0, 35.0);
+    plotWidget.addDataPoint(105.0, 70.0, 50.0);
+    Q_ASSERT(plot->graph(0)->dataCount() == 3);
+
+    // 3. 模拟鼠标滑动到 t = 101.8 的虚空像素位置 (最近邻应为 t2 = 102.0)
+    const int pixelX_NearT2 = plot->xAxis->coordToPixel(101.8);
+    const int pixelY_Center = plot->yAxis->coordToPixel(50.0);
+    tracer->updatePosition(QPoint(pixelX_NearT2, pixelY_Center));
+
+    Q_ASSERT(tracer->hasSnappedPoint());
+    Q_ASSERT(qFuzzyCompare(tracer->snappedKey(), 102.0));
+    Q_ASSERT(qFuzzyCompare(tracer->snappedTemp(), 55.0));
+    Q_ASSERT(qFuzzyCompare(tracer->snappedCpu(), 35.0)); // 双通道同刻对齐
+    Q_ASSERT(tracer->tooltipText().contains("55.0"));
+    Q_ASSERT(tracer->tooltipText().contains("35.0"));
+    qInfo() << QString("Step 2/3: Snapped to t=%1s Temp=%2℃ Load=%3% (hover at 101.8s, zero drift)")
+                   .arg(tracer->snappedKey(), 0, 'f', 1)
+                   .arg(tracer->snappedTemp(), 0, 'f', 1)
+                   .arg(tracer->snappedCpu(), 0, 'f', 1);
+
+    // 4. 智能边界避让翻转：右侧边缘 → 浮窗翻转至光标左侧锚定
+    const int pixelX_Right = plot->xAxis->coordToPixel(104.5);
+    tracer->updatePosition(QPoint(pixelX_Right, pixelY_Center));
+    Q_ASSERT(tracer->tooltipAnchoredRight());
+    const int pixelX_Left = plot->xAxis->coordToPixel(100.5);
+    tracer->updatePosition(QPoint(pixelX_Left, pixelY_Center));
+    Q_ASSERT(!tracer->tooltipAnchoredRight());
+    qInfo() << "Step 4: Smart edge flipping verified (right edge anchors tooltip leftward). OK.";
+
+    // 5. 视口移出：游标与浮窗瞬间隐去，防崩
+    tracer->updatePosition(QPoint(-10, -10));
+    Q_ASSERT(!tracer->isVisible());
+    Q_ASSERT(!tracer->hasSnappedPoint());
+    qInfo() << "Step 5: Out-of-bounds mouse position hides tracer cleanly. OK.";
+
+    // 6. 视觉冒烟：游标吸附态整体快照必须含 HUD 浮窗文字像素
+    tracer->updatePosition(QPoint(pixelX_NearT2, pixelY_Center));
+    Q_ASSERT(tracer->isVisible());
+    QPixmap snapshot = plotWidget.grab();
+    snapshot.save("D:/plot_tracer_snapshot.png");
+    QImage snapImg = snapshot.toImage();
+    int brightPixels = 0;
+    for (int y = 0; y < snapImg.height(); y += 2) {
+        for (int x = 0; x < snapImg.width(); x += 2) {
+            QColor c = snapImg.pixelColor(x, y);
+            if (c.red() > 200 && c.green() > 200 && c.blue() > 200)
+                brightPixels++;
+        }
+    }
+    Q_ASSERT(brightPixels > 100); // 浮窗白色文字 + 白描边圆点必须成片渲染
+    qInfo() << QString("Step 6: Snapshot contains %1 bright HUD pixels. Tooltip rendered!").arg(brightPixels);
+
+    qInfo() << ">>> SUCCESS: Crosshair Tracer & Nearest Snapping is 100% Reliable!";
+    qInfo() << "================ [PlotTracer Binary Snapping Test End: All Passed] ================";
+}
 int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
@@ -1207,7 +1289,8 @@ int main(int argc, char *argv[])
     // testFullPipelineStressAndConcurrency();
     // testRealtimePlotDualAxisTopology();
     // testRealtimePlotSlidingWindowPipeline();
-    testRealtimePlotRoutingAndDemuxPipeline();
+    // testRealtimePlotRoutingAndDemuxPipeline();
+    testPlotTracerSnappingPipeline();
     // 3. 身份认证模态拦截
     LoginDialog loginDlg;
     if (loginDlg.exec() != QDialog::Accepted) {

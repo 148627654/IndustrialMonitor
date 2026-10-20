@@ -10,6 +10,7 @@
 class QComboBox;
 class QCheckBox;
 class QLabel;
+class PlotTracer;
 
 /**
  * @brief 工业级双 Y 轴实时波形组件 (Dual-Axis SCADA Plot + 解复用路由中枢)
@@ -31,6 +32,8 @@ public:
 
     // 暴露底层绘图引擎 (供遥测数据追加、缩放与导出交互)
     QCustomPlot *plot() const { return m_plot; }
+    // 十字追踪游标探针 (供单测与外部读取吸附结果)
+    PlotTracer *tracer() const { return m_tracer; }
 
     // 载入设备列表供下拉框选择 (与表格台账同源)
     void setDeviceList(const QList<DeviceInfo> &devices);
@@ -55,6 +58,10 @@ private slots:
     void onChannelVisibilityChanged();            // 通道显隐 + Y 轴联动
     void onAutoScrollToggled(bool checked);       // 自动跟随定格 / 追平
 
+protected:
+    // 鼠标滑入工具条等图表外区域时隐藏游标
+    void mouseMoveEvent(QMouseEvent *event) override;
+
 private:
     void initUi();                                // 顶部工业控制工具条
     void setupPlot();                             // 双轴拓扑与曲线装配
@@ -72,6 +79,7 @@ private:
     QCustomPlot *m_plot = nullptr;
     QCPGraph *m_tempGraph = nullptr;
     QCPGraph *m_cpuGraph = nullptr;
+    PlotTracer *m_tracer = nullptr;   // 十字交叉追踪游标探针
 
     QString m_selectedDeviceId;
     bool m_autoScroll{true};          // 自动滚动跟随开关

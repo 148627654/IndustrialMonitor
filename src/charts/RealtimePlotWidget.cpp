@@ -1,11 +1,13 @@
 #include "RealtimePlotWidget.h"
 
 #include "qcustomplot.h"
+#include "PlotTracer.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QComboBox>
 #include <QCheckBox>
 #include <QLabel>
+#include <QMouseEvent>
 
 RealtimePlotWidget::RealtimePlotWidget(QWidget *parent)
     : QWidget(parent)
@@ -121,6 +123,27 @@ void RealtimePlotWidget::setupPlot()
     // 图例显示在图表右上角
     m_plot->legend->setVisible(true);
     m_plot->axisRect()->insetLayout()->setInsetAlignment(0, Qt::AlignTop | Qt::AlignRight);
+
+    // ==================== 十字交叉追踪游标探针 ====================
+    m_tracer = new PlotTracer(m_plot, m_tempGraph, m_cpuGraph, this);
+
+    // 鼠标移动 → 二分磁吸计算 (updatePosition 内部仅在有效吸附时触发 overlay 轻量重绘)
+    connect(m_plot, &QCustomPlot::mouseMove, this, [this](QMouseEvent *event) {
+        if (m_tracer)
+            m_tracer->updatePosition(event->pos());
+    });
+
+    // 图表视口需要持续追踪鼠标，才能捕获滑入/滑出过渡
+    m_plot->setMouseTracking(true);
+    setMouseTracking(true);
+}
+
+void RealtimePlotWidget::mouseMoveEvent(QMouseEvent *event)
+{
+    // 鼠标滑入工具条等图表外区域时，清爽隐藏整套游标
+    if (m_tracer && !m_plot->rect().contains(event->pos()))
+        m_tracer->setVisible(false);
+    QWidget::mouseMoveEvent(event);
 }
 
 void RealtimePlotWidget::setupDarkTheme()

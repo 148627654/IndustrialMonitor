@@ -39,6 +39,7 @@ INCLUDEPATH += \
 # -------------------------------------------------------------
 SOURCES += \
     src/alarm/alarmmanager.cpp \
+    src/charts/PlotTracer.cpp \
     src/charts/qcustomplot.cpp \
     src/charts/RealtimePlotWidget.cpp \
     src/common/validatorutils.cpp \
@@ -66,6 +67,7 @@ SOURCES += \
 HEADERS += \
     src/alarm/AlarmDef.h \
     src/alarm/alarmmanager.h \
+    src/charts/PlotTracer.h \
     src/charts/qcustomplot.h \
     src/charts/RealtimePlotWidget.h \
     src/common/DeviceDef.h \
