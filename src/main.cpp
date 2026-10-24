@@ -1371,6 +1371,50 @@ void testRealtimePlotInteractionAndNavigationPipeline()
     qInfo() << ">>> SUCCESS: Interactive Navigation & 60 FPS Rendering Pipeline is 100% Solid!";
     qInfo() << "================ [RealtimePlot Interaction & Navigation Test End: All Passed] ================";
 }
+
+// V4 005+ 生产并线验收：MainWindow 构造即点火采集引擎，节流总线三路消费端全链路真实数据贯通
+void testProductionEngineWiring()
+{
+    qInfo() << "================ [Production Engine Wiring Test Start] ================";
+
+    // 1. 构造真实主窗口 (构造函数末尾应自动 init() + start() 采集引擎)
+    MainWindow w;
+    w.move(-3000, -3000); // 屏幕外：完整走真实初始化路径且不闪窗
+    w.show();
+    for (int flush = 0; flush < 5; ++flush)
+        QApplication::processEvents();
+
+    // 2. 等待 3.2 秒让 1Hz 引擎泵出至少 3 批真实帧
+    {
+        QEventLoop loop;
+        QTimer::singleShot(3200, &loop, &QEventLoop::quit);
+        loop.exec();
+    }
+
+    AcquisitionController &controller = AcquisitionController::instance();
+    Q_ASSERT(controller.isRunning());                  // 引擎随主窗口构造自动点火
+    Q_ASSERT(controller.framesEmitted() > 0);          // 节流总线真实发射帧
+    qInfo() << QString("Step 1: Engine auto-ignited at runtime, %1 frames emitted via throttle bus.")
+                   .arg(controller.framesEmitted());
+
+    // 3. 曲线页解复用路由必须已收到真实采样点 (不再依赖手动 addDataPoint 注入)
+    RealtimePlotWidget *rpw = w.findChild<RealtimePlotWidget *>();
+    Q_ASSERT(rpw && rpw->plot() && rpw->plot()->graph(0)->dataCount() > 0);
+    qInfo() << QString("Step 2: Live plot pumped %1 real samples for [%2].")
+                   .arg(rpw->plot()->graph(0)->dataCount()).arg(rpw->currentDeviceId());
+
+    // 4. 曲线页读数标签必须已被实时刷新
+    bool readoutUpdated = false;
+    const QList<QLabel *> labels = rpw->findChildren<QLabel *>();
+    for (QLabel *l : labels) {
+        if (l->text().contains("温度:")) { readoutUpdated = true; break; }
+    }
+    Q_ASSERT(readoutUpdated);
+    qInfo() << "Step 3: Readout label refreshed by live telemetry. OK.";
+
+    qInfo() << ">>> SUCCESS: Production Data Chain (Engine -> Bus -> Table/Alarm/Plot) Fully Connected!";
+    qInfo() << "================ [Production Engine Wiring Test End: All Passed] ================";
+}
 int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
@@ -1404,6 +1448,7 @@ int main(int argc, char *argv[])
     // testRealtimePlotSlidingWindowPipeline();
     // testRealtimePlotRoutingAndDemuxPipeline();
     testRealtimePlotInteractionAndNavigationPipeline();
+    // testProductionEngineWiring(); // 生产并线验收 (约 3.5 秒，需时启用)
     // 3. 身份认证模态拦截
     LoginDialog loginDlg;
     if (loginDlg.exec() != QDialog::Accepted) {

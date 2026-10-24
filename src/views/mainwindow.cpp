@@ -49,6 +49,16 @@ MainWindow::MainWindow(QWidget *parent)
     initPlotPage();
     initNavigation();
     initStatusBar();
+
+    // ==================== V3 采集引擎并线生产：全链路真实数据源点火 ====================
+    // 引擎启动后，节流总线 (throttledBatchReady) 自动驱动三路消费端：
+    //   ① 设备台账表格 (updateTelemetryBatch)  ② ISA-18.2 告警状态机 (evaluateBatch)
+    //   ③ 实时曲线解复用路由 (onTelemetryBatchReceived)
+    AcquisitionController &controller = AcquisitionController::instance();
+    if (controller.init())
+        controller.start(); // 采集周期读取 t_sys_config (缺省 1000ms / 1Hz)
+    else
+        qCritical() << "[MainWindow] Acquisition engine initialization failed!";
 }
 
 MainWindow::~MainWindow()
@@ -476,11 +486,12 @@ void MainWindow::initViewtable()
         progressDelegate
         );
 
-    // 3. 启动实时数据泵定时器 (每 1000 毫秒跳动一次)
-    connect(m_dataPumpTimer, &QTimer::timeout, this, [this]() {
-        m_deviceModel->updateRandomData();
-    });
-    m_dataPumpTimer->start(1000);
+    // 3. 实时数据源已由采集引擎节流总线统一接管 (见构造函数末尾 controller.start())
+    //    原随机仿真泵正式退役 —— 表格不再由本地随机数驱动，改由真实采集帧刷新
+    // connect(m_dataPumpTimer, &QTimer::timeout, this, [this]() {
+    //     m_deviceModel->updateRandomData();
+    // });
+    // m_dataPumpTimer->start(1000);
     ui->tableViewDevices->viewport()->installEventFilter(this);
     loadDevicesFromDatabase();
 
