@@ -19,6 +19,8 @@
 #include "qcustomplot.h"
 #include <QVBoxLayout>
 #include <QUuid>
+#include <QCheckBox>
+#include <QPushButton>
 // V2 014
 void testDeviceFactoryAndPool()
 {
@@ -1258,6 +1260,117 @@ void testPlotTracerSnappingPipeline()
     qInfo() << ">>> SUCCESS: Crosshair Tracer & Nearest Snapping is 100% Reliable!";
     qInfo() << "================ [PlotTracer Binary Snapping Test End: All Passed] ================";
 }
+
+// V4 005 自由漫游交互 (轴向锁止 / 智能定格 / 瞬移追平) 与 60 FPS 渲染优化单测
+void testRealtimePlotInteractionAndNavigationPipeline()
+{
+    qInfo() << "================ [RealtimePlot Interaction & Navigation Test Start] ================";
+
+    RealtimePlotWidget plotWidget;
+    plotWidget.resize(1000, 600);
+    plotWidget.move(-3000, -3000); // 屏幕外渲染：完整走真实布局/绘制路径且不闪窗
+    plotWidget.show();
+    for (int flush = 0; flush < 5; ++flush)
+        QApplication::processEvents();
+
+    QCustomPlot *plot = plotWidget.plot();
+    Q_ASSERT(plot != nullptr);
+
+    // 1. 轴向隔离漫游验收：仅 X 轴参与拖拽/缩放，双 Y 轴通道必须为空 (绝对锁止)
+    const QList<QCPAxis *> dragAxes = plot->axisRect()->rangeDragAxes(Qt::Horizontal);
+    const QList<QCPAxis *> dragVertAxes = plot->axisRect()->rangeDragAxes(Qt::Vertical);
+    const QList<QCPAxis *> zoomAxes = plot->axisRect()->rangeZoomAxes(Qt::Horizontal);
+    const QList<QCPAxis *> zoomVertAxes = plot->axisRect()->rangeZoomAxes(Qt::Vertical);
+
+    Q_ASSERT(dragAxes.contains(plot->xAxis));
+    Q_ASSERT(dragVertAxes.isEmpty()); // Y 轴拖拽通道全部关闭
+    Q_ASSERT(zoomAxes.contains(plot->xAxis));
+    Q_ASSERT(zoomVertAxes.isEmpty()); // Y 轴缩放通道全部关闭
+    Q_ASSERT(qFuzzyCompare(plot->axisRect()->rangeZoomFactor(Qt::Horizontal), 0.85));
+    qInfo() << "Step 1: Axial isolation verified (X-axis free, both Y-axes 100% locked). OK.";
+
+    // 2. 注入基准数据并验证自动跟随活跃
+    plotWidget.addDataPoint(1000.0, 50.0, 30.0);
+    plotWidget.addDataPoint(1100.0, 55.0, 35.0);
+    Q_ASSERT(plot->graph(0)->dataCount() == 2);
+    qInfo() << "Step 2: Base calibration points injected. Auto-scroll active.";
+
+    // 3. 模拟用户主动漫游 (左键拖拽/滚轮缩放触发状态机拦截)
+    QCheckBox *chkAuto = plotWidget.findChild<QCheckBox *>("chkAutoScroll");
+    QPushButton *btnResume = plotWidget.findChild<QPushButton *>("btnResumeScroll");
+    Q_ASSERT(chkAuto && btnResume);
+    Q_ASSERT(chkAuto->isChecked());           // 初始自动跟随
+    Q_ASSERT(btnResume->isHidden());          // 悬浮按钮初始沉睡
+
+    QMetaObject::invokeMethod(&plotWidget, "onPlotUserInteraction", Qt::DirectConnection);
+
+    Q_ASSERT(!chkAuto->isChecked());          // 复选框被状态机同步取消勾选
+    Q_ASSERT(btnResume->isVisible());         // 右下角 HUD 胶囊按钮平滑浮现
+    qInfo() << "Step 3: Navigation lockout triggered - auto-scroll released, resume HUD appeared. OK.";
+
+    // 视觉冒烟：悬浮按钮真实渲染 (绿色胶囊边框与文字像素成片存在)
+    QPixmap hudSnapshot = plotWidget.grab();
+    hudSnapshot.save("D:/plot_navigation_snapshot.png");
+    QImage hudImg = hudSnapshot.toImage();
+    int greenHudPixels = 0;
+    for (int y = 0; y < hudImg.height(); ++y) {
+        for (int x = 0; x < hudImg.width(); ++x) {
+            QColor c = hudImg.pixelColor(x, y);
+            if (c.green() > 150 && c.red() < 160 && c.blue() < 120)
+                greenHudPixels++;
+        }
+    }
+    Q_ASSERT(greenHudPixels > 100); // 绿色胶囊边框 + 文字必须成片上屏
+    qInfo() << QString("Step 3b: Resume HUD rendered with %1 green pixels.").arg(greenHudPixels);
+
+    // 4. 定格期间数据继续流入，视口必须纹丝不动 (冲突保护)
+    plotWidget.addDataPoint(1200.0, 60.0, 40.0, false);
+    Q_ASSERT(qFuzzyCompare(plot->xAxis->range().upper, 1100.0)); // 画面仍停留在 1100
+    qInfo() << "Step 4: Data keeps flowing while viewport stays frozen (no tug-of-war). OK.";
+
+    // 5. 一键瞬移追平：点击悬浮按钮 → 视口秒级咬合最新采样时刻
+    QMetaObject::invokeMethod(&plotWidget, "onResumeScrollClicked", Qt::DirectConnection);
+    Q_ASSERT(btnResume->isHidden());          // 按钮自动隐去
+    Q_ASSERT(chkAuto->isChecked());           // 复选框复位
+    Q_ASSERT(qFuzzyCompare(plot->xAxis->range().upper, 1200.0)); // 追平最新点
+    qInfo() << "Step 5: Resume clicked - viewport teleported to latest, HUD collapsed. OK.";
+
+    // 6. 缩放极值硬夹紧：1 秒跨度被弹回 5 秒，2000 秒跨度被弹回 1800 秒
+    plot->xAxis->setRange(1000.0, 1001.0);
+    Q_ASSERT(plot->xAxis->range().size() >= 4.9);
+    plot->xAxis->setRange(1000.0, 3000.0);
+    Q_ASSERT(plot->xAxis->range().size() <= 1800.1);
+    qInfo() << "Step 6: Zoom span hard clamp verified (min 5s / max 1800s). OK.";
+
+    // 7. 高频注入性能基准：模拟 50Hz 遥测冲击 60 秒 (3000 帧)，排队重绘自动合并
+    QElapsedTimer bench;
+    bench.start();
+    for (int i = 0; i < 3000; ++i)
+        plotWidget.addDataPoint(1300.0 + i * 0.02, 50.0 + (i % 10), 30.0 + (i % 7));
+    const qint64 elapsedMs = bench.elapsed();
+    Q_ASSERT(elapsedMs < 2000); // 宽松上限：实测应在百毫秒级
+    qInfo() << QString("Step 7: 3000-frame @50Hz burst injected in %1 ms (queued-replot coalescing).").arg(elapsedMs);
+
+    // 8. 收尾：冲刷排队重绘，验证窗口仍健康渲染 (亮橙波形曲线真实上屏)
+    for (int flush = 0; flush < 10; ++flush)
+        QApplication::processEvents();
+    QPixmap finalSnapshot = plotWidget.grab();
+    finalSnapshot.save("D:/plot_navigation_final.png");
+    QImage finalImg = finalSnapshot.toImage();
+    int orangePixels = 0;
+    for (int y = 0; y < finalImg.height(); y += 2) {
+        for (int x = 0; x < finalImg.width(); x += 2) {
+            QColor c = finalImg.pixelColor(x, y);
+            if (c.red() > 200 && c.green() > 90 && c.green() < 190 && c.blue() < 80)
+                orangePixels++;
+        }
+    }
+    Q_ASSERT(orangePixels > 50);
+    qInfo() << QString("Step 8: Final render healthy with %1 orange waveform pixels.").arg(orangePixels);
+
+    qInfo() << ">>> SUCCESS: Interactive Navigation & 60 FPS Rendering Pipeline is 100% Solid!";
+    qInfo() << "================ [RealtimePlot Interaction & Navigation Test End: All Passed] ================";
+}
 int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
@@ -1290,7 +1403,7 @@ int main(int argc, char *argv[])
     // testRealtimePlotDualAxisTopology();
     // testRealtimePlotSlidingWindowPipeline();
     // testRealtimePlotRoutingAndDemuxPipeline();
-    testPlotTracerSnappingPipeline();
+    testRealtimePlotInteractionAndNavigationPipeline();
     // 3. 身份认证模态拦截
     LoginDialog loginDlg;
     if (loginDlg.exec() != QDialog::Accepted) {

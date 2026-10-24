@@ -8,6 +8,7 @@
 #include <QCheckBox>
 #include <QLabel>
 #include <QMouseEvent>
+#include <QResizeEvent>
 
 RealtimePlotWidget::RealtimePlotWidget(QWidget *parent)
     : QWidget(parent)
@@ -64,6 +65,7 @@ void RealtimePlotWidget::initUi()
     connect(m_chkCpu, &QCheckBox::toggled, this, &RealtimePlotWidget::onChannelVisibilityChanged);
 
     m_chkAutoScroll = new QCheckBox("自动跟随", toolbarHost);
+    m_chkAutoScroll->setObjectName("chkAutoScroll");
     m_chkAutoScroll->setChecked(true);
     m_chkAutoScroll->setStyleSheet("color: #67C23A;");
     connect(m_chkAutoScroll, &QCheckBox::toggled, this, &RealtimePlotWidget::onAutoScrollToggled);
@@ -86,6 +88,22 @@ void RealtimePlotWidget::initUi()
     m_plot = new QCustomPlot(this);
     m_plot->setObjectName("realtimePlot");
     mainLayout->addWidget(m_plot);
+
+    // ==================== 右下角悬浮 HUD 胶囊按钮 (独立于 Layout，resizeEvent 绝对定位) ====================
+    m_btnResumeScroll = new QPushButton("⟲ 回到当前时刻", this);
+    m_btnResumeScroll->setObjectName("btnResumeScroll");
+    m_btnResumeScroll->setCursor(Qt::PointingHandCursor);
+    m_btnResumeScroll->setStyleSheet(
+        "QPushButton {"
+        "   background-color: rgba(35, 42, 50, 220);"
+        "   color: #67C23A; border: 1px solid #67C23A;"
+        "   border-radius: 15px; padding: 6px 14px;"
+        "   font-weight: bold; font-size: 12px;"
+        "}"
+        "QPushButton:hover { background-color: rgba(103, 194, 58, 40); }"
+        "QPushButton:pressed { background-color: rgba(103, 194, 58, 80); }");
+    m_btnResumeScroll->hide();
+    connect(m_btnResumeScroll, &QPushButton::clicked, this, &RealtimePlotWidget::onResumeScrollClicked);
 }
 
 void RealtimePlotWidget::setupPlot()
@@ -136,6 +154,80 @@ void RealtimePlotWidget::setupPlot()
     // 图表视口需要持续追踪鼠标，才能捕获滑入/滑出过渡
     m_plot->setMouseTracking(true);
     setMouseTracking(true);
+
+    // ==================== 自由漫游交互：X 轴独占缩放/平移，双 Y 轴刚性锁止 ====================
+    m_plot->setInteractions(QCP::iRangeDrag | QCP::iRangeZoom);
+    m_plot->axisRect()->setRangeDragAxes(m_plot->xAxis, nullptr); // 仅允许 X 轴拖拽平移
+    m_plot->axisRect()->setRangeZoomAxes(m_plot->xAxis, nullptr); // 仅允许 X 轴滚轮缩放
+    m_plot->axisRect()->setRangeZoomFactor(0.85);                 // 平滑缩放系数 (跟手)
+
+    // 缩放极值硬夹紧：最小 5 秒 (杜绝皮秒级退化视口)，最大 30 分钟 (杜绝万年历式跨度)
+    connect(m_plot->xAxis, QOverload<const QCPRange &>::of(&QCPAxis::rangeChanged),
+            this, [this](const QCPRange &newRange) {
+        const double span = newRange.size();
+        if (span < 5.0)
+            m_plot->xAxis->setRange(newRange.center() - 2.5, newRange.center() + 2.5);
+        else if (span > 1800.0)
+            m_plot->xAxis->setRange(newRange.center() - 900.0, newRange.center() + 900.0);
+    });
+
+    // 人机工效状态机：左键拖拽 / 滚轮缩放 → 即刻解除自动跟随，画面定格不再与后台数据拔河
+    connect(m_plot, &QCustomPlot::mousePress, this, [this](QMouseEvent *event) {
+        if (event->button() == Qt::LeftButton)
+            onPlotUserInteraction();
+    });
+    connect(m_plot, &QCustomPlot::mouseWheel, this, [this]() {
+        onPlotUserInteraction();
+    });
+
+    // ==================== 60 FPS 极限渲染抛光 ====================
+    // 仅曲线与面积光晕开启抗锯齿，网格/背景/坐标轴关闭省算力 (2.1.1 枚举为 aePlottables/aeFills)
+    m_plot->setAntialiasedElements(QCP::aePlottables | QCP::aeFills);
+    m_plot->setPlottingHint(QCP::phFastPolylines, true); // 折线快速光栅化通道
+}
+
+void RealtimePlotWidget::resizeEvent(QResizeEvent *event)
+{
+    QWidget::resizeEvent(event);
+    if (m_btnResumeScroll) {
+        // 固定钉在右下角，避开底部坐标轴
+        const int btnWidth = 140;
+        const int btnHeight = 32;
+        m_btnResumeScroll->resize(btnWidth, btnHeight);
+        m_btnResumeScroll->move(width() - btnWidth - 25, height() - btnHeight - 35);
+    }
+}
+
+void RealtimePlotWidget::onPlotUserInteraction()
+{
+    if (!m_autoScroll)
+        return;
+
+    // 智能冲突拦截：用户主动漫游 → 即刻解除自动跟随 (后台数据照常写入与淘汰，视口保持定格)
+    m_autoScroll = false;
+    m_chkAutoScroll->blockSignals(true);
+    m_chkAutoScroll->setChecked(false);
+    m_chkAutoScroll->blockSignals(false);
+
+    m_btnResumeScroll->show();
+    m_btnResumeScroll->raise(); // 置顶于绘图区上方
+}
+
+void RealtimePlotWidget::onResumeScrollClicked()
+{
+    m_autoScroll = true;
+    m_chkAutoScroll->blockSignals(true);
+    m_chkAutoScroll->setChecked(true);
+    m_chkAutoScroll->blockSignals(false);
+
+    m_btnResumeScroll->hide();
+
+    // 视口秒级瞬移追平最新采样时刻，恢复心电图平滑滑动
+    if (m_tempGraph && m_tempGraph->dataCount() > 0) {
+        const double latestT = m_tempGraph->data()->at(m_tempGraph->dataCount() - 1)->key;
+        m_plot->xAxis->setRange(lowerBoundFor(latestT), latestT);
+        m_plot->replot();
+    }
 }
 
 void RealtimePlotWidget::mouseMoveEvent(QMouseEvent *event)
@@ -213,7 +305,8 @@ void RealtimePlotWidget::addDataPoint(double timestamp, double temperature, doub
     if (scrollViewport)
         m_plot->xAxis->setRange(lowerBoundFor(timestamp), timestamp);
 
-    m_plot->replot();
+    // 排队增量重绘：同一事件循环内的多次高频追加被自动合并为单次重绘 (rpQueuedReplot)
+    m_plot->replot(QCustomPlot::rpQueuedReplot);
 }
 
 void RealtimePlotWidget::clearData()
@@ -291,11 +384,14 @@ void RealtimePlotWidget::onAutoScrollToggled(bool checked)
 {
     m_autoScroll = checked;
 
-    // 重新开启跟随时，视口秒级瞬移追平最新时刻
-    if (m_autoScroll && m_tempGraph && !m_tempGraph->data()->isEmpty()) {
-        const double latest = m_tempGraph->data()->at(m_tempGraph->data()->size() - 1)->key;
-        m_plot->xAxis->setRange(lowerBoundFor(latest), latest);
-        m_plot->replot();
+    // 重新开启跟随：视口秒级瞬移追平最新时刻，并同步收起悬浮恢复按钮
+    if (m_autoScroll) {
+        m_btnResumeScroll->hide();
+        if (m_tempGraph && !m_tempGraph->data()->isEmpty()) {
+            const double latest = m_tempGraph->data()->at(m_tempGraph->data()->size() - 1)->key;
+            m_plot->xAxis->setRange(lowerBoundFor(latest), latest);
+            m_plot->replot();
+        }
     }
 }
 
