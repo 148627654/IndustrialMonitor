@@ -71,6 +71,7 @@ HEADERS += \
     src/charts/qcustomplot.h \
     src/charts/RealtimePlotWidget.h \
     src/common/DeviceDef.h \
+    src/common/LogDef.h \
     src/common/TelemetryDef.h \
     src/common/thememanager.h \
     src/common/validatorutils.h \

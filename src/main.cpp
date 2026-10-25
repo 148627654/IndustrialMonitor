@@ -17,10 +17,12 @@
 #include "RealtimePlotWidget.h"
 #include "PlotTracer.h"
 #include "qcustomplot.h"
+#include "common/LogDef.h"
 #include <QVBoxLayout>
 #include <QUuid>
 #include <QCheckBox>
 #include <QPushButton>
+#include <QRegularExpression>
 // V2 014
 void testDeviceFactoryAndPool()
 {
@@ -1415,9 +1417,78 @@ void testProductionEngineWiring()
     qInfo() << ">>> SUCCESS: Production Data Chain (Engine -> Bus -> Table/Alarm/Plot) Fully Connected!";
     qInfo() << "================ [Production Engine Wiring Test End: All Passed] ================";
 }
+
+// V4 006 结构化日志实体与四级通道规约单测
+void testLogDefSpecificationPipeline()
+{
+    qInfo() << "================ [LogDef Specification & Formatting Test Start] ================";
+
+    // 1. 验证元类型系统注册有效性 (跨线程队列值传递契约基石)
+    qRegisterMetaType<LogMessage>("LogMessage");
+    Q_ASSERT(QMetaType::fromType<LogMessage>().isValid());
+    qInfo() << "Step 1: LogMessage Qt Meta-Type registered successfully. OK.";
+
+    // 2. 验证路径裁剪算法 (消除 __FILE__ 超长绝对路径污染)
+    const char *mockFullPath = "D:\\Projects\\IndustrialMonitor\\src\\core\\AcquisitionWorker.cpp";
+    const QString stripped = stripSourcePath(mockFullPath);
+    qInfo() << "Step 2: Source path stripped cleanly:" << stripped;
+    Q_ASSERT(stripped == "AcquisitionWorker.cpp");
+    Q_ASSERT(stripSourcePath(nullptr).isEmpty()); // 空指针防御
+
+    // 3. 四级日志等级文本映射断言 (统一 5 字符宽，[LEVEL] 列严格对齐)
+    Q_ASSERT(QString(logLevelToString(LogLevel::Debug)) == "DEBUG");
+    Q_ASSERT(QString(logLevelToString(LogLevel::Info)) == "INFO ");
+    Q_ASSERT(QString(logLevelToString(LogLevel::Warning)) == "WARN ");
+    Q_ASSERT(QString(logLevelToString(LogLevel::Critical)) == "CRIT ");
+    qInfo() << "Step 3: Four-level text mapping verified (fixed 5-char width). OK.";
+
+    // 4. 构造一条代表生产工况的结构化 Warning 日志
+    LogMessage log;
+    log.timestamp  = QDateTime::fromString("2026-09-20 15:30:12.456", "yyyy-MM-dd hh:mm:ss.zzz");
+    log.level      = LogLevel::Warning;
+    log.threadId   = "0x1a8fc3";
+    log.fileName   = stripped;
+    log.lineNumber = 108;
+    log.function   = "onPollTimeout";
+    log.message    = "Device [DEV-1002] connection timeout, scheduling backoff retry in 2000 ms.";
+
+    // 5. 断言纯文本排版格式 (磁盘落盘范式，严禁混入 ANSI 转义码)
+    const QString plainStr = log.toString();
+    qInfo() << "Step 4: Generated Plain Disk String:\n" << plainStr;
+
+    const QString expectedPlain = "[2026-09-20 15:30:12.456] [WARN ] [Thread:0x1a8fc3] [AcquisitionWorker.cpp:108] [onPollTimeout] Device [DEV-1002] connection timeout, scheduling backoff retry in 2000 ms.";
+    Q_ASSERT(plainStr == expectedPlain);
+    Q_ASSERT(!plainStr.contains("\033")); // 落盘字符串零转义码
+
+    // 正则全字段结构化校验：时间/等级/线程/文件:行号/函数/正文 逐一可提取 (供审计脚本清洗)
+    const QRegularExpression re(
+        R"(^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})\] \[(DEBUG|INFO |WARN |CRIT )\] \[Thread:0x[0-9a-fA-F]+\] \[([^]]+):(\d+)\] \[([^]]+)\] (.+)$)");
+    const QRegularExpressionMatch m = re.match(plainStr);
+    Q_ASSERT(m.hasMatch());
+    Q_ASSERT(m.captured(1) == "2026-09-20 15:30:12.456");   // 组1: 时间戳
+    Q_ASSERT(m.captured(2) == "WARN ");                       // 组2: 等级标签
+    Q_ASSERT(m.captured(3) == "AcquisitionWorker.cpp");       // 组3: 纯文件名
+    Q_ASSERT(m.captured(4) == "108");                         // 组4: 行号
+    Q_ASSERT(m.captured(5) == "onPollTimeout");               // 组5: 函数签名
+    Q_ASSERT(m.captured(6).startsWith("Device [DEV-1002]"));  // 组6: 业务正文
+    qInfo() << "Step 5: Regex structured extraction matched all 7 fields. OK.";
+
+    // 6. 验证 ANSI 彩色打印格式包含转义字符且末尾安全复原
+    const QString colorStr = log.toColorString();
+    Q_ASSERT(colorStr.contains("\033[33m")); // Warning 亮黄转义码
+    Q_ASSERT(colorStr.endsWith("\033[0m"));  // 末尾颜色复原
+    qInfo() << "Step 6: ANSI color escape verified (yellow + reset). OK.";
+
+    qInfo() << ">>> SUCCESS: LogDef Specification & Structured Logging Protocol is 100% Solid!";
+    qInfo() << "================ [LogDef Specification & Formatting Test End: All Passed] ================";
+}
 int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
+
+    // 0. 结构化日志元类型全局登记 (V4 Day 06 契约基石：支持跨线程队列值传递)
+    qRegisterMetaType<LogMessage>("LogMessage");
+    qRegisterMetaType<QList<LogMessage>>("QList<LogMessage>");
 
     // 1. 全局样式与热重载挂载
     ThemeManager::instance().enableHotReload();
@@ -1447,8 +1518,9 @@ int main(int argc, char *argv[])
     // testRealtimePlotDualAxisTopology();
     // testRealtimePlotSlidingWindowPipeline();
     // testRealtimePlotRoutingAndDemuxPipeline();
-    testRealtimePlotInteractionAndNavigationPipeline();
+    // testRealtimePlotInteractionAndNavigationPipeline();
     // testProductionEngineWiring(); // 生产并线验收 (约 3.5 秒，需时启用)
+    testLogDefSpecificationPipeline();
     // 3. 身份认证模态拦截
     LoginDialog loginDlg;
     if (loginDlg.exec() != QDialog::Accepted) {
