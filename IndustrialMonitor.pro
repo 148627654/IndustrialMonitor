@@ -32,7 +32,8 @@ INCLUDEPATH += \
     $$PWD/src/hardware/mock \
     $$PWD/src/alarm \
     $$PWD/src/db \
-    $$PWD/src/charts
+    $$PWD/src/charts \
+    $$PWD/src/logger
 
 # -------------------------------------------------------------
 # 3. 源码与头文件映射
@@ -50,6 +51,7 @@ SOURCES += \
     src/hardware/devicefactory.cpp \
     src/hardware/idevice.cpp \
     src/hardware/mock/mockdevice.cpp \
+    src/logger/AsyncLogger.cpp \
     src/main.cpp \
     src/common/thememanager.cpp \
     src/models/deviceproxymodel.cpp \
@@ -82,6 +84,7 @@ HEADERS += \
     src/hardware/devicefactory.h \
     src/hardware/idevice.h \
     src/hardware/mock/mockdevice.h \
+    src/logger/AsyncLogger.h \
     src/models/deviceproxymodel.h \
     src/models/devicetablemodel.h \
     src/views/adddevicedialog.h \

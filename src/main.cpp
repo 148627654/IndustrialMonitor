@@ -18,11 +18,15 @@
 #include "PlotTracer.h"
 #include "qcustomplot.h"
 #include "common/LogDef.h"
+#include "AsyncLogger.h"
 #include <QVBoxLayout>
 #include <QUuid>
 #include <QCheckBox>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QFile>
+#include <QTextStream>
+#include <QStringList>
 // V2 014
 void testDeviceFactoryAndPool()
 {
@@ -1482,6 +1486,131 @@ void testLogDefSpecificationPipeline()
     qInfo() << ">>> SUCCESS: LogDef Specification & Structured Logging Protocol is 100% Solid!";
     qInfo() << "================ [LogDef Specification & Formatting Test End: All Passed] ================";
 }
+
+// V4 007 异步后台写盘工作者与双缓冲阻塞队列单测
+void testAsyncLoggerDoubleBufferPipeline()
+{
+    qInfo() << "================ [AsyncLogger Double-Buffering Test Start] ================";
+
+    const QString logDir = "logs";
+    const QString logFile = "test_async.log";
+    const QString logPath = logDir + "/" + logFile;
+    QFile::remove(logPath); // 清理历史残留，保证行数断言精确
+
+    AsyncLogger logger;
+    Q_ASSERT(logger.objectName() == "AsyncLogThread");
+    logger.setLogDirectory(logDir);
+    logger.setLogFile(logFile);
+    logger.startLogging();
+    Q_ASSERT(logger.isRunning());
+
+    const QDateTime base = QDateTime::fromMSecsSinceEpoch(1700000000000LL);
+
+    // 1. 生产者微秒级非阻塞耗时验证 (先压 50 条触发落盘，让磁盘处于写负荷中再测)
+    for (int i = 0; i < 50; ++i) {
+        LogMessage m;
+        m.timestamp = base.addSecs(i); m.level = LogLevel::Info;
+        m.threadId = "0xTEST"; m.fileName = "Test.cpp"; m.lineNumber = i + 1;
+        m.function = "testAsyncLogger"; m.message = QString("warmup-%1").arg(i);
+        logger.pushLog(m);
+    }
+    QThread::msleep(30); // 让写盘线程进入物理写盘状态 (磁盘高负荷下测投递延迟)
+
+    QList<LogMessage> burst;
+    for (int i = 0; i < 100; ++i) {
+        LogMessage m;
+        m.timestamp = base.addSecs(50 + i); m.level = LogLevel::Info;
+        m.threadId = "0xTEST"; m.fileName = "Test.cpp"; m.lineNumber = i + 1;
+        m.function = "testAsyncLogger"; m.message = QString("burst-%1").arg(i);
+        burst << m;
+    }
+    QElapsedTimer timer;
+    timer.start();
+    for (const LogMessage &m : burst)
+        logger.pushLog(m); // 纯投递计时 (构造开销已剥离)
+    const double avgNs = timer.nsecsElapsed() / 100.0;
+    Q_ASSERT(avgNs < 2000.0); // 平均单次投递 < 2 微秒
+    qInfo() << QString("Step 1: Average pushLog latency %1 ns (disk busy). Non-blocking OK.").arg(avgNs, 0, 'f', 0);
+
+    // 2. 双缓冲批量对调落盘：150 条全部物理落盘且时序严格递增、无撕裂
+    for (int spin = 0; spin < 60 && logger.pendingCount() != 0; ++spin)
+        QThread::msleep(50); // 轮询等待落盘 (上限 3 秒，防通知竞争)
+    Q_ASSERT(logger.pendingCount() == 0);
+    QThread::msleep(100); // 沉降期：批次换出到本地后仍在物理写入，计数归零≠写盘完成
+
+    QStringList lines;
+    {
+        QFile in(logPath);
+        Q_ASSERT(in.open(QIODevice::ReadOnly | QIODevice::Text));
+        while (!in.atEnd()) {
+            const QString line = in.readLine().trimmed();
+            if (!line.isEmpty())
+                lines << line;
+        }
+        in.close();
+    }
+    Q_ASSERT(lines.size() == 150); // 精确 150 行
+    for (int i = 0; i < 150; ++i) {
+        Q_ASSERT(lines.at(i).contains(base.addSecs(i).toString("yyyy-MM-dd hh:mm:ss.zzz")));
+        Q_ASSERT(lines.at(i).contains(i < 50 ? QString("warmup-%1").arg(i) : QString("burst-%1").arg(i - 50)));
+    }
+    qInfo() << "Step 2: 150 lines physically flushed, strict time-ordered, zero tearing. OK.";
+
+    // 3. 定时保底超时刷盘：仅 1 条孤立日志 (低于 50 条阈值)，不唤醒，1000ms 超时后必须落盘
+    LogMessage lonely;
+    lonely.timestamp = base.addSecs(500);
+    lonely.level = LogLevel::Warning;
+    lonely.threadId = "0xTEST"; lonely.fileName = "Test.cpp"; lonely.lineNumber = 999;
+    lonely.function = "testAsyncLogger"; lonely.message = "lonely-log-waiting-timeout-flush";
+    logger.pushLog(lonely);
+    QThread::msleep(1150); // 覆盖 1000ms 超时窗口 (消费者必然已苏醒并刷盘)
+    Q_ASSERT(logger.pendingCount() == 0);
+    {
+        QFile in(logPath);
+        Q_ASSERT(in.open(QIODevice::ReadOnly | QIODevice::Text));
+        QString lastLine;
+        while (!in.atEnd()) {
+            const QString l = in.readLine().trimmed();
+            if (!l.isEmpty())
+                lastLine = l;
+        }
+        in.close();
+        Q_ASSERT(lastLine.contains("lonely-log-waiting-timeout-flush"));
+    }
+    qInfo() << "Step 3: Interval flush (1000ms watchdog) persisted the lone log. OK.";
+
+    // 4. 优雅停机清仓熔断：极速压入 100 条后立即停机，零丢失
+    for (int i = 0; i < 100; ++i) {
+        LogMessage m;
+        m.timestamp = base.addSecs(600 + i); m.level = LogLevel::Critical;
+        m.threadId = "0xTEST"; m.fileName = "Test.cpp"; m.lineNumber = i + 1;
+        m.function = "testAsyncLogger"; m.message = QString("shutdown-%1").arg(i);
+        logger.pushLog(m);
+    }
+    Q_ASSERT(logger.stopLogging());  // wait() 汇合成功 (退出码 0)
+    Q_ASSERT(logger.pendingCount() == 0); // 零遗留
+
+    int finalCount = 0;
+    QString finalLast;
+    {
+        QFile in(logPath);
+        Q_ASSERT(in.open(QIODevice::ReadOnly | QIODevice::Text));
+        while (!in.atEnd()) {
+            const QString l = in.readLine().trimmed();
+            if (!l.isEmpty()) {
+                ++finalCount;
+                finalLast = l;
+            }
+        }
+        in.close();
+    }
+    Q_ASSERT(finalCount == 251); // 150 + 1 + 100
+    Q_ASSERT(finalLast.contains("shutdown-99"));
+    qInfo() << "Step 4: Graceful shutdown flushed 100/100 logs, loss rate 0.00%. OK.";
+
+    qInfo() << ">>> SUCCESS: AsyncLogger & Double-Buffering Queue is 100% Reliable!";
+    qInfo() << "================ [AsyncLogger Double-Buffering Test End: All Passed] ================";
+}
 int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
@@ -1520,7 +1649,8 @@ int main(int argc, char *argv[])
     // testRealtimePlotRoutingAndDemuxPipeline();
     // testRealtimePlotInteractionAndNavigationPipeline();
     // testProductionEngineWiring(); // 生产并线验收 (约 3.5 秒，需时启用)
-    testLogDefSpecificationPipeline();
+    // testLogDefSpecificationPipeline();
+    testAsyncLoggerDoubleBufferPipeline();
     // 3. 身份认证模态拦截
     LoginDialog loginDlg;
     if (loginDlg.exec() != QDialog::Accepted) {
